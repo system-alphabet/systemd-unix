@@ -1097,9 +1097,13 @@ libpwquality_cflags = declare_dependency(
 conf.set10('HAVE_PWQUALITY', have)
 conf.set10('HAVE_PASSWDQC', not have and libpwquality.found())
 
+libseccomp_required = get_option('seccomp')
+if get_option('libc') == 'bsd'
+        libseccomp_required = false
+endif
 libseccomp = dependency('libseccomp',
                         version : '>= 2.4.0',
-                        required : get_option('seccomp'))
+                        required : libseccomp_required)
 conf.set10('HAVE_SECCOMP', libseccomp.found())
 libseccomp_cflags = declare_dependency(
         dependencies : libseccomp.partial_dependency(includes: true, compile_args: true),
@@ -1570,6 +1574,7 @@ foreach tuple : [
                 ['efi'],
                 ['environment-d'],
                 ['firstboot'],
+                ['cgroup',          get_option('libc') != 'bsd', 'BSD does not support cgroup'],
                 ['gshadow',         get_option('libc') != 'musl', 'musl does not support it'],
                 ['hibernate'],
                 ['hwdb'],

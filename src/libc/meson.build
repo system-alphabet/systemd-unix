@@ -1,26 +1,33 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-libc_wrapper_sources = files(
-        'bpf.c',
-        'epoll.c',
-        'fcntl.c',
-        'ioprio.c',
-        'kcmp.c',
-        'kexec.c',
-        'keyctl.c',
-        'mempolicy.c',
-        'mount.c',
-        'pidfd.c',
-        'quota.c',
-        'sched.c',
-        'signal.c',
-        'spawn.c',
-        'stat.c',
-        'unistd.c',
-        'xattr.c',
-)
+# Common libc wrapper sources (Linux syscall shims for glibc/musl).
+# On BSD these are not used — BSD provides its own shims in libc/bsd/.
+if get_option('libc') != 'bsd'
+        libc_wrapper_sources = files(
+                'bpf.c',
+                'epoll.c',
+                'fcntl.c',
+                'ioprio.c',
+                'kcmp.c',
+                'kexec.c',
+                'keyctl.c',
+                'mempolicy.c',
+                'mount.c',
+                'pidfd.c',
+                'quota.c',
+                'sched.c',
+                'signal.c',
+                'spawn.c',
+                'stat.c',
+                'unistd.c',
+                'xattr.c',
+        )
+else
+        libc_wrapper_sources = files()
+endif
 
 subdir('musl')
+subdir('bsd')
 
 sources += libc_wrapper_sources
 

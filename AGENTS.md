@@ -40,3 +40,11 @@ display. This is critical for diagnosing build and test failures.
 ## Pull Request Review Instructions
 
 - Always check out the PR in a git worktree in `worktrees/`, review it locally and remove the worktree when finished.
+
+## Build Variants
+
+This fork supports two additional build variants beyond the default:
+- `-Dcgroup=false` — disables cgroup support; all cgroup functions return unlimited shim values (`UINT64_MAX`, `-ENODATA`, `false`)
+- `-Dlibc=bsd` — BSD portability mode; disables cgroup, seccomp; uses kqueue-based compatibility layer in `src/libc/bsd/` and headers in `src/include/bsd/`
+
+When building with `-Dlibc=bsd`, the common Linux syscall shims in `src/libc/*.c` are excluded. Stub implementations in `src/libc/bsd/linux-stubs.c` and `src/libc/bsd/keyctl.c` provide ENOSYS-returning placeholders so the code compiles cleanly on Linux for build validation. The resulting binaries are only functional on actual BSD systems.
