@@ -1963,15 +1963,75 @@ int cg_remove_xattr(const char *path, const char *name) {
 }
 
 int cg_pid_get_path(pid_t pid, char **ret_path) {
-        if (ret_path)
-                *ret_path = NULL;
-        return -ENODATA;
+        _cleanup_fclose_ FILE *f = NULL;
+        const char *fs;
+        int r;
+
+        assert(pid >= 0);
+        assert(ret_path);
+
+        fs = procfs_file_alloca(pid, "cgroup");
+        r = fopen_unlocked(fs, "re", &f);
+        if (r == -ENOENT)
+                return -ESRCH;
+        if (r < 0)
+                return r;
+
+        for (;;) {
+                _cleanup_free_ char *line = NULL;
+                char *e;
+
+                r = read_line(f, LONG_LINE_MAX, &line);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        return -ENODATA;
+
+                e = startswith(line, "0:");
+                if (!e)
+                        continue;
+
+                e = strchr(e, ':');
+                if (!e)
+                        continue;
+
+                _cleanup_free_ char *path = strdup(e + 1);
+                if (!path)
+                        return -ENOMEM;
+
+                if (startswith(path, "/../"))
+                        return -EUNATCH;
+
+                e = endswith(path, " (deleted)");
+                if (e)
+                        *e = 0;
+
+                *ret_path = TAKE_PTR(path);
+                return 0;
+        }
 }
 
 int cg_pidref_get_path(const PidRef *pidref, char **ret_path) {
-        if (ret_path)
-                *ret_path = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *path = NULL;
+        int r;
+
+        assert(ret_path);
+
+        if (!pidref_is_set(pidref))
+                return -ESRCH;
+        if (pidref_is_remote(pidref))
+                return -EREMOTE;
+
+        r = cg_pid_get_path(pidref->pid, &path);
+        if (r < 0)
+                return r;
+
+        r = pidref_verify(pidref);
+        if (r < 0)
+                return r;
+
+        *ret_path = TAKE_PTR(path);
+        return 0;
 }
 
 int cg_is_empty(const char *path) {
@@ -1979,11 +2039,57 @@ int cg_is_empty(const char *path) {
 }
 
 int cg_split_spec(const char *spec, char **ret_controller, char **ret_path) {
+        _cleanup_free_ char *controller = NULL;
+        const char *path;
+        int r;
+
+        assert(spec);
+
+        if (isempty(spec) || path_is_absolute(spec)) {
+                path = spec;
+                goto finalize;
+        }
+
+        const char *e = strchr(spec, ':');
+        if (!e) {
+                if (ret_controller) {
+                        controller = strdup(spec);
+                        if (!controller)
+                                return -ENOMEM;
+                }
+
+                path = NULL;
+        } else {
+                if (ret_controller) {
+                        controller = strndup(spec, e - spec);
+                        if (!controller)
+                                return -ENOMEM;
+                }
+
+                path = e + 1;
+        }
+
+finalize:
+        path = empty_to_null(path);
+
+        if (path) {
+                if (!path_is_absolute(path))
+                        return -EINVAL;
+
+                if (!path_is_safe(path))
+                        return -EINVAL;
+        }
+
+        if (ret_path) {
+                r = path_simplify_alloc(path, ret_path);
+                if (r < 0)
+                        return r;
+        }
+
         if (ret_controller)
-                *ret_controller = NULL;
-        if (ret_path)
-                *ret_path = NULL;
-        return -ENODATA;
+                *ret_controller = TAKE_PTR(controller);
+
+        return 0;
 }
 
 int cg_get_root_path(char **ret_path) {
@@ -1996,167 +2102,634 @@ int cg_get_root_path(char **ret_path) {
 }
 
 int cg_shift_path(const char *cgroup, const char *root, const char **ret_shifted) {
-        if (ret_shifted)
-                *ret_shifted = cgroup;
+        int r;
+
+        assert(cgroup);
+        assert(ret_shifted);
+
+        _cleanup_free_ char *rt = NULL;
+        if (!root) {
+                r = cg_get_root_path(&rt);
+                if (r < 0)
+                        return r;
+
+                root = rt;
+        }
+
+        *ret_shifted = path_startswith_full(cgroup, root, PATH_STARTSWITH_RETURN_LEADING_SLASH|PATH_STARTSWITH_REFUSE_DOT_DOT) ?: cgroup;
         return 0;
 }
 
 int cg_pid_get_path_shifted(pid_t pid, const char *root, char **ret_cgroup) {
-        if (ret_cgroup)
-                *ret_cgroup = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *raw = NULL;
+        const char *c;
+        int r;
+
+        assert(pid >= 0);
+        assert(ret_cgroup);
+
+        r = cg_pid_get_path(pid, &raw);
+        if (r < 0)
+                return r;
+
+        r = cg_shift_path(raw, root, &c);
+        if (r < 0)
+                return r;
+
+        if (c == raw) {
+                *ret_cgroup = TAKE_PTR(raw);
+                return 0;
+        }
+
+        return strdup_to(ret_cgroup, c);
+}
+
+static bool valid_slice_name(const char *p, size_t n) {
+        assert(p || n == 0);
+
+        if (n < STRLEN("x.slice"))
+                return false;
+
+        char *c = strndupa_safe(p, n);
+        if (!endswith(c, ".slice"))
+                return false;
+
+        return unit_name_is_valid(cg_unescape(c), UNIT_NAME_PLAIN);
+}
+
+static const char* skip_slices(const char *p) {
+        assert(p);
+
+        for (;;) {
+                size_t n;
+
+                p += strspn(p, "/");
+
+                n = strcspn(p, "/");
+                if (!valid_slice_name(p, n))
+                        return p;
+
+                p += n;
+        }
 }
 
 int cg_path_decode_unit(const char *cgroup, char **ret_unit) {
+        assert(cgroup);
+
+        size_t n = strcspn(cgroup, "/");
+        if (n < 3)
+                return -ENXIO;
+
+        char *c = strndupa_safe(cgroup, n);
+        c = cg_unescape(c);
+
+        if (!unit_name_is_valid(c, UNIT_NAME_PLAIN|UNIT_NAME_INSTANCE))
+                return -ENXIO;
+
         if (ret_unit)
-                *ret_unit = NULL;
-        return -ENODATA;
+                return strdup_to(ret_unit, c);
+
+        return 0;
 }
 
 int cg_path_get_unit_full(const char *path, char **ret_unit, char **ret_subgroup) {
+        int r;
+
+        assert(path);
+
+        const char *e = skip_slices(path);
+
+        _cleanup_free_ char *unit = NULL;
+        r = cg_path_decode_unit(e, &unit);
+        if (r < 0)
+                return r;
+
+        if (endswith(unit, ".slice"))
+                return -ENXIO;
+
+        if (ret_subgroup) {
+                _cleanup_free_ char *subgroup = NULL;
+                e += strcspn(e, "/");
+                e += strspn(e, "/");
+
+                if (isempty(e))
+                        subgroup = NULL;
+                else {
+                        subgroup = strdup(e);
+                        if (!subgroup)
+                                return -ENOMEM;
+                }
+
+                path_simplify(subgroup);
+
+                *ret_subgroup = TAKE_PTR(subgroup);
+        }
+
         if (ret_unit)
-                *ret_unit = NULL;
-        if (ret_subgroup)
-                *ret_subgroup = NULL;
-        return -ENODATA;
+                *ret_unit = TAKE_PTR(unit);
+
+        return 0;
 }
 
 int cg_path_get_unit_path(const char *path, char **ret) {
-        if (ret)
-                *ret = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *path_copy = NULL;
+        char *unit_name;
+
+        assert(path);
+        assert(ret);
+
+        path_copy = strdup(path);
+        if (!path_copy)
+                return -ENOMEM;
+
+        unit_name = (char*) skip_slices(path_copy);
+        unit_name[strcspn(unit_name, "/")] = 0;
+
+        if (!unit_name_is_valid(cg_unescape(unit_name), UNIT_NAME_PLAIN|UNIT_NAME_INSTANCE))
+                return -ENXIO;
+
+        *ret = TAKE_PTR(path_copy);
+
+        return 0;
 }
 
 int cg_pid_get_unit_full(pid_t pid, char **ret_unit, char **ret_subgroup) {
-        if (ret_unit)
-                *ret_unit = NULL;
-        if (ret_subgroup)
-                *ret_subgroup = NULL;
-        return -ENODATA;
+        int r;
+
+        _cleanup_free_ char *cgroup = NULL;
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_unit_full(cgroup, ret_unit, ret_subgroup);
 }
 
 int cg_pidref_get_unit_full(const PidRef *pidref, char **ret_unit, char **ret_subgroup) {
+        int r;
+
+        if (!pidref_is_set(pidref))
+                return -ESRCH;
+        if (pidref_is_remote(pidref))
+                return -EREMOTE;
+
+        _cleanup_free_ char *unit = NULL, *subgroup = NULL;
+        r = cg_pid_get_unit_full(pidref->pid, &unit, &subgroup);
+        if (r < 0)
+                return r;
+
+        r = pidref_verify(pidref);
+        if (r < 0)
+                return r;
+
         if (ret_unit)
-                *ret_unit = NULL;
+                *ret_unit = TAKE_PTR(unit);
         if (ret_subgroup)
-                *ret_subgroup = NULL;
-        return -ENODATA;
+                *ret_subgroup = TAKE_PTR(subgroup);
+        return 0;
+}
+
+static const char* skip_session(const char *p) {
+        size_t n;
+
+        if (isempty(p))
+                return NULL;
+
+        p += strspn(p, "/");
+
+        n = strcspn(p, "/");
+        if (n < STRLEN("session-x.scope"))
+                return NULL;
+
+        const char *s = startswith(p, "session-");
+        if (!s)
+                return NULL;
+
+        char *f = strndupa_safe(s, p + n - s),
+             *e = endswith(f, ".scope");
+        if (!e)
+                return NULL;
+        *e = '\0';
+
+        if (!session_id_valid(f))
+                return NULL;
+
+        return skip_leading_slash(p + n);
+}
+
+static const char* skip_user_manager(const char *p) {
+        size_t n;
+
+        if (isempty(p))
+                return NULL;
+
+        p += strspn(p, "/");
+
+        n = strcspn(p, "/");
+        if (n < CONST_MIN(STRLEN("user@x.service"), STRLEN("capsule@x.service")))
+                return NULL;
+
+        _cleanup_free_ char *unit_name = strndup(p, n);
+        if (!unit_name)
+                return NULL;
+
+        _cleanup_free_ char *i = NULL;
+        UnitNameFlags type = unit_name_to_instance(unit_name, &i);
+
+        if (type != UNIT_NAME_INSTANCE)
+                return NULL;
+
+        if (!(startswith(unit_name, "user@") && parse_uid(i, NULL) >= 0) &&
+            !(startswith(unit_name, "capsule@") && capsule_name_is_valid(i) > 0))
+                return NULL;
+
+        return skip_leading_slash(p + n);
+}
+
+static const char* skip_user_prefix(const char *path) {
+        const char *e, *t;
+
+        assert(path);
+
+        e = skip_slices(path);
+
+        t = skip_user_manager(e);
+        if (t)
+                return t;
+
+        return skip_session(e);
 }
 
 int cg_path_get_user_unit_full(const char *path, char **ret_unit, char **ret_subgroup) {
-        if (ret_unit)
-                *ret_unit = NULL;
-        if (ret_subgroup)
-                *ret_subgroup = NULL;
-        return -ENODATA;
+        const char *t;
+
+        assert(path);
+
+        t = skip_user_prefix(path);
+        if (!t)
+                return -ENXIO;
+
+        return cg_path_get_unit_full(t, ret_unit, ret_subgroup);
 }
 
 int cg_pid_get_user_unit_full(pid_t pid, char **ret_unit, char **ret_subgroup) {
-        if (ret_unit)
-                *ret_unit = NULL;
-        if (ret_subgroup)
-                *ret_subgroup = NULL;
-        return -ENODATA;
+        int r;
+
+        _cleanup_free_ char *cgroup = NULL;
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_user_unit_full(cgroup, ret_unit, ret_subgroup);
 }
 
 int cg_pidref_get_user_unit_full(const PidRef *pidref, char **ret_unit, char **ret_subgroup) {
+        int r;
+
+        if (!pidref_is_set(pidref))
+                return -ESRCH;
+        if (pidref_is_remote(pidref))
+                return -EREMOTE;
+
+        _cleanup_free_ char *unit = NULL, *subgroup = NULL;
+        r = cg_pid_get_user_unit_full(pidref->pid, &unit, &subgroup);
+        if (r < 0)
+                return r;
+
+        r = pidref_verify(pidref);
+        if (r < 0)
+                return r;
+
         if (ret_unit)
-                *ret_unit = NULL;
+                *ret_unit = TAKE_PTR(unit);
         if (ret_subgroup)
-                *ret_subgroup = NULL;
-        return -ENODATA;
+                *ret_subgroup = TAKE_PTR(subgroup);
+        return 0;
 }
 
 int cg_path_get_machine_name(const char *path, char **ret_machine) {
-        if (ret_machine)
-                *ret_machine = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *u = NULL;
+        const char *sl;
+        int r;
+
+        r = cg_path_get_unit(path, &u);
+        if (r < 0)
+                return r;
+
+        sl = strjoina("/run/systemd/machines/unit:", u);
+        return readlink_malloc(sl, ret_machine);
 }
 
 int cg_pid_get_machine_name(pid_t pid, char **ret_machine) {
-        if (ret_machine)
-                *ret_machine = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *cgroup = NULL;
+        int r;
+
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_machine_name(cgroup, ret_machine);
 }
 
 int cg_path_get_session(const char *path, char **ret_session) {
-        if (ret_session)
-                *ret_session = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *unit = NULL;
+        char *start, *end;
+        int r;
+
+        assert(path);
+
+        r = cg_path_get_unit(path, &unit);
+        if (r < 0)
+                return r;
+
+        start = startswith(unit, "session-");
+        if (!start)
+                return -ENXIO;
+        end = endswith(start, ".scope");
+        if (!end)
+                return -ENXIO;
+
+        *end = 0;
+        if (!session_id_valid(start))
+                return -ENXIO;
+
+        if (!ret_session)
+                return 0;
+
+        return strdup_to(ret_session, start);
 }
 
 int cg_pid_get_session(pid_t pid, char **ret_session) {
-        if (ret_session)
-                *ret_session = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *cgroup = NULL;
+        int r;
+
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_session(cgroup, ret_session);
 }
 
 int cg_pidref_get_session(const PidRef *pidref, char **ret) {
+        int r;
+
+        if (!pidref_is_set(pidref))
+                return -ESRCH;
+        if (pidref_is_remote(pidref))
+                return -EREMOTE;
+
+        _cleanup_free_ char *session = NULL;
+        r = cg_pid_get_session(pidref->pid, &session);
+        if (r < 0)
+                return r;
+
+        r = pidref_verify(pidref);
+        if (r < 0)
+                return r;
+
         if (ret)
-                *ret = NULL;
-        return -ENODATA;
+                *ret = TAKE_PTR(session);
+        return 0;
 }
 
 int cg_path_get_owner_uid(const char *path, uid_t *ret_uid) {
-        if (ret_uid)
-                *ret_uid = UID_INVALID;
-        return -ENODATA;
+        _cleanup_free_ char *slice = NULL;
+        char *start, *end;
+        int r;
+
+        assert(path);
+
+        r = cg_path_get_slice(path, &slice);
+        if (r < 0)
+                return r;
+
+        start = startswith(slice, "user-");
+        if (!start)
+                return -ENXIO;
+
+        end = endswith(start, ".slice");
+        if (!end)
+                return -ENXIO;
+
+        *end = 0;
+        if (parse_uid(start, ret_uid) < 0)
+                return -ENXIO;
+
+        return 0;
 }
 
 int cg_pid_get_owner_uid(pid_t pid, uid_t *ret_uid) {
-        if (ret_uid)
-                *ret_uid = UID_INVALID;
-        return -ENODATA;
+        _cleanup_free_ char *cgroup = NULL;
+        int r;
+
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_owner_uid(cgroup, ret_uid);
 }
 
 int cg_pidref_get_owner_uid(const PidRef *pidref, uid_t *ret) {
+        int r;
+
+        if (!pidref_is_set(pidref))
+                return -ESRCH;
+        if (pidref_is_remote(pidref))
+                return -EREMOTE;
+
+        uid_t uid;
+        r = cg_pid_get_owner_uid(pidref->pid, &uid);
+        if (r < 0)
+                return r;
+
+        r = pidref_verify(pidref);
+        if (r < 0)
+                return r;
+
         if (ret)
-                *ret = UID_INVALID;
-        return -ENODATA;
+                *ret = uid;
+
+        return 0;
 }
 
 int cg_path_get_slice(const char *p, char **ret_slice) {
+        const char *e = NULL;
+
+        assert(p);
+
+        for (;;) {
+                const char *s;
+                int n;
+
+                n = path_find_first_component(&p, /* accept_dot_dot= */ false, &s);
+                if (n < 0)
+                        return n;
+                if (!valid_slice_name(s, n))
+                        break;
+
+                e = s;
+        }
+
+        if (e)
+                return cg_path_decode_unit(e, ret_slice);
+
         if (ret_slice)
-                *ret_slice = NULL;
-        return -ENODATA;
+                return strdup_to(ret_slice, SPECIAL_ROOT_SLICE);
+
+        return 0;
 }
 
 int cg_pid_get_slice(pid_t pid, char **ret_slice) {
-        if (ret_slice)
-                *ret_slice = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *cgroup = NULL;
+        int r;
+
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_slice(cgroup, ret_slice);
 }
 
 int cg_path_get_user_slice(const char *p, char **ret_slice) {
-        if (ret_slice)
-                *ret_slice = NULL;
-        return -ENODATA;
+        const char *t;
+
+        assert(p);
+
+        t = skip_user_prefix(p);
+        if (!t)
+                return -ENXIO;
+
+        return cg_path_get_slice(t, ret_slice);
 }
 
 int cg_pid_get_user_slice(pid_t pid, char **ret_slice) {
-        if (ret_slice)
-                *ret_slice = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *cgroup = NULL;
+        int r;
+
+        r = cg_pid_get_path_shifted(pid, NULL, &cgroup);
+        if (r < 0)
+                return r;
+
+        return cg_path_get_user_slice(cgroup, ret_slice);
 }
 
 bool cg_needs_escape(const char *p) {
+        if (!filename_is_valid(p))
+                return true;
+
+        if (IN_SET(p[0], '_', '.'))
+                return true;
+
+        if (STR_IN_SET(p, "notify_on_release", "release_agent", "tasks"))
+                return true;
+
+        if (startswith(p, "cgroup."))
+                return true;
+
+        for (CGroupController c = 0; c < _CGROUP_CONTROLLER_MAX; c++) {
+                const char *q;
+
+                q = startswith(p, cgroup_controller_to_string(c));
+                if (!q)
+                        continue;
+
+                if (q[0] == '.')
+                        return true;
+        }
+
         return false;
 }
 
 int cg_escape(const char *p, char **ret) {
-        if (ret)
-                *ret = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *n = NULL;
+
+        assert(ret);
+
+        if (cg_needs_escape(p)) {
+                n = strjoin("_", p);
+                if (!n)
+                        return -ENOMEM;
+
+                if (!filename_is_valid(n))
+                        return -EINVAL;
+        } else {
+                n = strdup(p);
+                if (!n)
+                        return -ENOMEM;
+        }
+
+        *ret = TAKE_PTR(n);
+        return 0;
 }
 
 char* cg_unescape(const char *p) {
+        assert(p);
+
+        if (p[0] == '_')
+                return (char*) p+1;
+
         return (char*) p;
 }
 
 int cg_slice_to_path(const char *unit, char **ret) {
-        if (ret)
-                *ret = NULL;
-        return -ENODATA;
+        _cleanup_free_ char *p = NULL, *s = NULL, *e = NULL;
+        const char *dash;
+        int r;
+
+        assert(unit);
+        assert(ret);
+
+        if (streq(unit, SPECIAL_ROOT_SLICE))
+                return strdup_to(ret, "");
+
+        if (!unit_name_is_valid(unit, UNIT_NAME_PLAIN))
+                return -EINVAL;
+
+        if (!endswith(unit, ".slice"))
+                return -EINVAL;
+
+        r = unit_name_to_prefix(unit, &p);
+        if (r < 0)
+                return r;
+
+        dash = strchr(p, '-');
+
+        if (dash == p)
+                return -EINVAL;
+
+        while (dash) {
+                _cleanup_free_ char *escaped = NULL;
+                char n[dash - p + sizeof(".slice")];
+
+#if HAS_FEATURE_MEMORY_SANITIZER
+                zero(n);
+#endif
+
+                if (IN_SET(dash[1], 0, '-'))
+                        return -EINVAL;
+
+                strcpy(stpncpy(n, p, dash - p), ".slice");
+                if (!unit_name_is_valid(n, UNIT_NAME_PLAIN))
+                        return -EINVAL;
+
+                r = cg_escape(n, &escaped);
+                if (r < 0)
+                        return r;
+
+                if (!strextend(&s, escaped, "/"))
+                        return -ENOMEM;
+
+                dash = strchr(dash+1, '-');
+        }
+
+        r = cg_escape(unit, &e);
+        if (r < 0)
+                return r;
+
+        if (!strextend(&s, e))
+                return -ENOMEM;
+
+        *ret = TAKE_PTR(s);
+        return 0;
 }
 
 int cg_is_threaded(const char *path) {
