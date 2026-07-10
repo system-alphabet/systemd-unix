@@ -15,6 +15,7 @@
 
 #include "alloc-util.h"
 #include "ask-password-api.h"
+#include "bitfield.h"
 #include "blkid-util.h"
 #include "blockdev-list.h"
 #include "blockdev-util.h"
@@ -84,8 +85,7 @@
 #include "terminal-util.h"
 #include "time-util.h"
 #include "tmpfile-util.h"
-#include "tpm2-pcr.h"
-#include "tpm2-util.h"
+
 #include "utf8.h"
 #include "varlink-io.systemd.Repart.h"
 #include "varlink-util.h"
@@ -187,15 +187,6 @@ static char *arg_private_key_source = NULL;
 static char *arg_certificate = NULL;
 static CertificateSourceType arg_certificate_source_type = OPENSSL_CERTIFICATE_SOURCE_FILE;
 static char *arg_certificate_source = NULL;
-static char *arg_tpm2_device = NULL;
-static uint32_t arg_tpm2_seal_key_handle = 0;
-static char *arg_tpm2_device_key = NULL;
-static Tpm2PCRValue *arg_tpm2_hash_pcr_values = NULL;
-static size_t arg_tpm2_n_hash_pcr_values = 0;
-static char *arg_tpm2_public_key = NULL;
-static char *arg_tpm2_public_key_policyref = NULL;
-static uint32_t arg_tpm2_public_key_pcr_mask = 0;
-static char *arg_tpm2_pcrlock = NULL;
 static bool arg_split = false;
 static GptPartitionType *arg_filter_partitions = NULL;
 static size_t arg_n_filter_partitions = 0;
@@ -232,12 +223,6 @@ STATIC_DESTRUCTOR_REGISTER(arg_private_key, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_private_key_source, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_certificate, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_certificate_source, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_device, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_device_key, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_hash_pcr_values, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_public_key, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_public_key_policyref, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_pcrlock, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_filter_partitions, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_defer_partitions, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_image_policy, image_policy_freep);
@@ -276,8 +261,6 @@ typedef struct FreeArea FreeArea;
 typedef enum EncryptMode {
         ENCRYPT_OFF,
         ENCRYPT_KEY_FILE,
-        ENCRYPT_TPM2,
-        ENCRYPT_KEY_FILE_TPM2,
         _ENCRYPT_MODE_MAX,
         _ENCRYPT_MODE_INVALID = -EINVAL,
 } EncryptMode;
@@ -507,8 +490,6 @@ typedef struct Partition {
         char *default_subvolume;
         EncryptMode encrypt;
         struct iovec key;
-        Tpm2PCRValue *tpm2_hash_pcr_values;
-        size_t tpm2_n_hash_pcr_values;
         IntegrityMode integrity;
         IntegrityAlg integrity_alg;
         EncryptKDF encrypt_kdf;
@@ -621,8 +602,6 @@ static const char *append_mode_table[_APPEND_MODE_MAX] = {
 static const char *encrypt_mode_table[_ENCRYPT_MODE_MAX] = {
         [ENCRYPT_OFF] = "off",
         [ENCRYPT_KEY_FILE] = "key-file",
-        [ENCRYPT_TPM2] = "tpm2",
-        [ENCRYPT_KEY_FILE_TPM2] = "key-file+tpm2",
 };
 
 /* Going forward, the plan is to add two more modes:
@@ -850,7 +829,6 @@ static Partition* partition_free(Partition *p) {
         strv_free(p->make_symlinks);
         ordered_hashmap_free(p->subvolumes);
         free(p->default_subvolume);
-        free(p->tpm2_hash_pcr_values);
         free(p->verity_match_key);
         free(p->compression);
         free(p->compression_level);
@@ -897,7 +875,6 @@ static void partition_foreignize(Partition *p) {
         p->make_symlinks = strv_free(p->make_symlinks);
         p->subvolumes = ordered_hashmap_free(p->subvolumes);
         p->default_subvolume = mfree(p->default_subvolume);
-        p->tpm2_hash_pcr_values = mfree(p->tpm2_hash_pcr_values);
         p->verity_match_key = mfree(p->verity_match_key);
         p->compression = mfree(p->compression);
         p->compression_level = mfree(p->compression_level);
@@ -2740,33 +2717,6 @@ static int config_parse_encrypted_volume(
         return 0;
 }
 
-static int config_parse_tpm2_pcrs(
-                const char *unit,
-                const char *filename,
-                unsigned line,
-                const char *section,
-                unsigned section_line,
-                const char *lvalue,
-                int ltype,
-                const char *rvalue,
-                void *data,
-                void *userdata) {
-
-        Partition *partition = ASSERT_PTR(data);
-
-        assert(rvalue);
-
-        if (isempty(rvalue)) {
-                /* Clear existing PCR values if empty */
-                partition->tpm2_hash_pcr_values = mfree(partition->tpm2_hash_pcr_values);
-                partition->tpm2_n_hash_pcr_values = 0;
-                return 0;
-        }
-
-        return tpm2_parse_pcr_argument_append(rvalue, &partition->tpm2_hash_pcr_values,
-                                              &partition->tpm2_n_hash_pcr_values);
-}
-
 static int parse_key_file(const char *filename, struct iovec *key) {
         _cleanup_(erase_and_freep) char *k = NULL;
         size_t n = 0;
@@ -2974,7 +2924,6 @@ static int partition_read_definition(
                 { "Partition", "VerityHashBlockSizeBytes", config_parse_block_size,        0,                                  &p->verity_hash_block_size  },
                 { "Partition", "MountPoint",               config_parse_mountpoint,        0,                                  p                           },
                 { "Partition", "EncryptedVolume",          config_parse_encrypted_volume,  0,                                  p                           },
-                { "Partition", "TPM2PCRs",                 config_parse_tpm2_pcrs,         0,                                  p                           },
                 { "Partition", "KeyFile",                  config_parse_key_file,          0,                                  p                           },
                 { "Partition", "Integrity",                config_parse_integrity,         0,                                  &p->integrity               },
                 { "Partition", "IntegrityAlgorithm",       config_parse_integrity_alg,     0,                                  &p->integrity_alg           },
@@ -5416,9 +5365,6 @@ static size_t dmcrypt_proper_key_size(Partition *p) {
 
 static int partition_encrypt(Context *context, Partition *p, PartitionTarget *target, bool offline, bool temporary) {
 #if HAVE_LIBCRYPTSETUP
-#if HAVE_TPM2
-        _cleanup_(erase_and_freep) char *base64_encoded = NULL;
-#endif
         _cleanup_fclose_ FILE *h = NULL;
         _cleanup_free_ char *hp = NULL, *vol = NULL, *dm_name = NULL;
         const char *passphrase = NULL;
@@ -5604,7 +5550,7 @@ static int partition_encrypt(Context *context, Partition *p, PartitionTarget *ta
                         return log_oom();
         }
 
-        if (IN_SET(p->encrypt, ENCRYPT_KEY_FILE, ENCRYPT_KEY_FILE_TPM2)) {
+        if (p->encrypt == ENCRYPT_KEY_FILE) {
                 /* Use partition-specific key if available, otherwise fall back to global key */
                 struct iovec *iovec_key = arg_key.iov_base ? &arg_key : &p->key;
 
@@ -5622,215 +5568,7 @@ static int partition_encrypt(Context *context, Partition *p, PartitionTarget *ta
                 passphrase_size = iovec_key->iov_len;
         }
 
-        if (IN_SET(p->encrypt, ENCRYPT_TPM2, ENCRYPT_KEY_FILE_TPM2)) {
-#if HAVE_TPM2
-                _cleanup_(iovec_done) struct iovec pubkey = {}, srk = {};
-                _cleanup_(iovec_done_erase) struct iovec secret = {};
-                _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
-                ssize_t base64_encoded_size;
-                int keyslot;
-                TPM2Flags flags = 0;
-                Tpm2PCRValue *pcr_values = arg_tpm2_n_hash_pcr_values > 0 ? arg_tpm2_hash_pcr_values : p->tpm2_hash_pcr_values;
-                size_t n_pcr_values = arg_tpm2_n_hash_pcr_values > 0 ? arg_tpm2_n_hash_pcr_values : p->tpm2_n_hash_pcr_values;
 
-                if (n_pcr_values == 0 &&
-                    arg_tpm2_public_key_pcr_mask == 0 &&
-                    !arg_tpm2_pcrlock)
-                        log_notice("Notice: encrypting future partition %" PRIu64 ", locking against TPM2 with an empty policy, i.e. without any state or access restrictions.\n"
-                                   "Use --tpm2-public-key=, --tpm2-pcrlock=, or --tpm2-pcrs= to enable one or more restrictions.", p->partno);
-
-                if (arg_tpm2_public_key_pcr_mask != 0) {
-                        r = tpm2_load_pcr_public_key(arg_tpm2_public_key, &pubkey.iov_base, &pubkey.iov_len);
-                        if (r < 0) {
-                                if (arg_tpm2_public_key || r != -ENOENT)
-                                        return log_error_errno(r, "Failed to read TPM PCR public key: %m");
-
-                                log_debug_errno(r, "Failed to read TPM2 PCR public key, proceeding without: %m");
-                                arg_tpm2_public_key_pcr_mask = 0;
-                        }
-                }
-
-                TPM2B_PUBLIC public;
-                if (iovec_is_set(&pubkey)) {
-                        r = tpm2_tpm2b_public_from_pem(pubkey.iov_base, pubkey.iov_len, &public);
-                        if (r < 0)
-                                return log_error_errno(r, "Could not convert public key to TPM2B_PUBLIC: %m");
-                }
-
-                _cleanup_(tpm2_pcrlock_policy_done) Tpm2PCRLockPolicy pcrlock_policy = {};
-                if (arg_tpm2_pcrlock) {
-                        r = tpm2_pcrlock_policy_load(arg_tpm2_pcrlock, &pcrlock_policy);
-                        if (r < 0)
-                                return r;
-
-                        flags |= TPM2_FLAGS_USE_PCRLOCK;
-                }
-
-                _cleanup_(tpm2_context_unrefp) Tpm2Context *tpm2_context = NULL;
-                TPM2B_PUBLIC device_key_public = {};
-                if (arg_tpm2_device_key) {
-                        r = tpm2_load_public_key_file(arg_tpm2_device_key, &device_key_public);
-                        if (r < 0)
-                                return r;
-
-                        if (!tpm2_pcr_values_has_all_values(pcr_values, n_pcr_values))
-                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                                       "Must provide all PCR values when using TPM2 device key.");
-                } else {
-                        r = tpm2_context_new_or_warn(arg_tpm2_device, &tpm2_context);
-                        if (r < 0)
-                                return r;
-
-                        if (!tpm2_pcr_values_has_all_values(pcr_values, n_pcr_values)) {
-                                r = tpm2_pcr_read_missing_values(tpm2_context, pcr_values, n_pcr_values);
-                                if (r < 0)
-                                        return log_error_errno(r, "Could not read pcr values: %m");
-                        }
-                }
-
-                uint16_t hash_pcr_bank = 0;
-                uint32_t hash_pcr_mask = 0;
-                if (n_pcr_values > 0) {
-                        size_t hash_count;
-                        r = tpm2_pcr_values_hash_count(pcr_values, n_pcr_values, &hash_count);
-                        if (r < 0)
-                                return log_error_errno(r, "Could not get hash count: %m");
-
-                        if (hash_count > 1)
-                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Multiple PCR banks selected.");
-
-                        hash_pcr_bank = pcr_values[0].hash;
-                        r = tpm2_pcr_values_to_mask(pcr_values, n_pcr_values, hash_pcr_bank, &hash_pcr_mask);
-                        if (r < 0)
-                                return log_error_errno(r, "Could not get hash mask: %m");
-                }
-
-                TPM2B_DIGEST policy_hash[2] = {
-                        TPM2B_DIGEST_MAKE(NULL, TPM2_SHA256_DIGEST_SIZE),
-                        TPM2B_DIGEST_MAKE(NULL, TPM2_SHA256_DIGEST_SIZE),
-                };
-                size_t n_policy_hash = 1;
-
-                /* If both PCR public key unlock and pcrlock unlock is selected, then shard the encryption key. */
-                r = tpm2_calculate_sealing_policy(
-                                pcr_values,
-                                n_pcr_values,
-                                iovec_is_set(&pubkey) ? &public : NULL,
-                                iovec_is_set(&pubkey) ? arg_tpm2_public_key_policyref : NULL,
-                                /* use_pin= */ false,
-                                arg_tpm2_pcrlock && !iovec_is_set(&pubkey) ? &pcrlock_policy : NULL,
-                                policy_hash + 0);
-                if (r < 0)
-                        return log_error_errno(r, "Could not calculate sealing policy digest for shard 0: %m");
-
-                if (arg_tpm2_pcrlock && iovec_is_set(&pubkey)) {
-                        r = tpm2_calculate_sealing_policy(
-                                        pcr_values,
-                                        n_pcr_values,
-                                        /* public= */ NULL,      /* Turn this one off for the 2nd shard */
-                                        /* pubkey_policy_ref= */ NULL,
-                                        /* use_pin= */ false,
-                                        &pcrlock_policy,         /* But turn this one on */
-                                        policy_hash + 1);
-                        if (r < 0)
-                                return log_error_errno(r, "Could not calculate sealing policy digest for shard 1: %m");
-
-                        n_policy_hash++;
-                }
-
-                struct iovec *blobs = NULL;
-                size_t n_blobs = 0;
-                CLEANUP_ARRAY(blobs, n_blobs, iovec_array_free);
-
-                if (arg_tpm2_device_key) {
-                        if (n_policy_hash > 1)
-                                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
-                                                       "Combined signed PCR policies and pcrlock policies cannot be calculated offline, currently.");
-
-                        blobs = new0(struct iovec, 1);
-                        if (!blobs)
-                                return log_oom();
-
-                        n_blobs = 1;
-
-                        r = tpm2_calculate_seal(
-                                        arg_tpm2_seal_key_handle,
-                                        &device_key_public,
-                                        /* attributes= */ NULL,
-                                        /* secret= */ NULL,
-                                        policy_hash + 0,
-                                        /* pin= */ NULL,
-                                        &secret,
-                                        blobs + 0,
-                                        &srk);
-                } else
-                        r = tpm2_seal(tpm2_context,
-                                      arg_tpm2_seal_key_handle,
-                                      policy_hash,
-                                      n_policy_hash,
-                                      /* pin= */ NULL,
-                                      &secret,
-                                      &blobs,
-                                      &n_blobs,
-                                      /* ret_primary_alg= */ NULL,
-                                      &srk);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to seal to TPM2: %m");
-
-                base64_encoded_size = base64mem(secret.iov_base, secret.iov_len, &base64_encoded);
-                if (base64_encoded_size < 0)
-                        return log_error_errno(base64_encoded_size, "Failed to base64 encode secret key: %m");
-
-                r = cryptsetup_set_minimal_pbkdf(cd);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to set minimal PBKDF: %m");
-
-                keyslot = sym_crypt_keyslot_add_by_volume_key(
-                                cd,
-                                CRYPT_ANY_SLOT,
-                                /* volume_key= */ NULL,
-                                /* volume_key_size= */ volume_key_size,
-                                base64_encoded,
-                                base64_encoded_size);
-                if (keyslot < 0)
-                        return log_error_errno(keyslot, "Failed to add new TPM2 key: %m");
-
-                struct iovec policy_hash_as_iovec[2] = {
-                        IOVEC_MAKE(policy_hash[0].buffer, policy_hash[0].size),
-                        IOVEC_MAKE(policy_hash[1].buffer, policy_hash[1].size),
-                };
-
-                r = tpm2_make_luks2_json(
-                                keyslot,
-                                hash_pcr_mask,
-                                hash_pcr_bank,
-                                &pubkey,
-                                arg_tpm2_public_key_policyref,
-                                arg_tpm2_public_key_pcr_mask,
-                                /* primary_alg= */ 0,
-                                blobs,
-                                n_blobs,
-                                policy_hash_as_iovec,
-                                n_policy_hash,
-                                /* salt= */ NULL, /* no salt because tpm2_seal has no pin */
-                                &srk,
-                                &pcrlock_policy.nv_handle,
-                                flags,
-                                &v);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to prepare TPM2 JSON token object: %m");
-
-                r = cryptsetup_add_token_json(cd, v);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to add TPM2 JSON token to LUKS2 header: %m");
-
-                passphrase = base64_encoded;
-                passphrase_size = strlen(base64_encoded);
-#else
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
-                                       "Support for TPM2 enrollment not enabled.");
-#endif
-        }
 
         if (offline) {
                 r = sym_crypt_reencrypt_init_by_passphrase(
@@ -10162,7 +9900,6 @@ static int parse_argv(int argc, char *argv[]) {
         assert(argv);
 
         OptionParser opts = { argc, argv };
-        bool auto_public_key_pcr_mask = true, auto_pcrlock = true;
         int r;
 
         FOREACH_OPTION_OR_RETURN(c, &opts)
@@ -10433,81 +10170,6 @@ static int parse_argv(int argc, char *argv[]) {
                         r = parse_key_file(opts.arg, &arg_key);
                         if (r < 0)
                                 return r;
-                        break;
-
-                OPTION_LONG("tpm2-device", "PATH",
-                            "Path to TPM2 device node to use"): {
-                        _cleanup_free_ char *device = NULL;
-
-                        if (streq(opts.arg, "list"))
-                                return tpm2_list_devices(/* legend= */ true, /* quiet= */ false);
-
-                        if (!streq(opts.arg, "auto")) {
-                                device = strdup(opts.arg);
-                                if (!device)
-                                        return log_oom();
-                        }
-
-                        free(arg_tpm2_device);
-                        arg_tpm2_device = TAKE_PTR(device);
-                        break;
-                }
-
-                OPTION_LONG("tpm2-device-key", "PATH",
-                            "Enroll a TPM2 device using its public key"):
-                        r = parse_path_argument(opts.arg, /* suppress_root= */ false, &arg_tpm2_device_key);
-                        if (r < 0)
-                                return r;
-
-                        break;
-
-                OPTION_LONG("tpm2-seal-key-handle", "HANDLE",
-                            "Specify handle of key to use for sealing"):
-                        r = safe_atou32_full(opts.arg, 16, &arg_tpm2_seal_key_handle);
-                        if (r < 0)
-                                return log_error_errno(r, "Could not parse TPM2 seal key handle index '%s': %m", opts.arg);
-
-                        break;
-
-                OPTION_LONG("tpm2-pcrs", "PCR1+PCR2+…",
-                            "TPM2 PCR indexes to use for TPM2 enrollment"):
-                        r = tpm2_parse_pcr_argument_append(opts.arg, &arg_tpm2_hash_pcr_values, &arg_tpm2_n_hash_pcr_values);
-                        if (r < 0)
-                                return r;
-
-                        break;
-
-                OPTION_LONG("tpm2-public-key", "PATH",
-                            "Enroll signed TPM2 PCR policy against PEM public key"):
-                        r = parse_path_argument(opts.arg, /* suppress_root= */ false, &arg_tpm2_public_key);
-                        if (r < 0)
-                                return r;
-
-                        break;
-
-                OPTION_LONG("tpm2-public-key-policyref", "STRING",
-                            "Enroll signed TPM2 PCR policy with the specified policy reference"):
-                        r = free_and_strdup_warn(&arg_tpm2_public_key_policyref, opts.arg);
-                        if (r < 0)
-                                return r;
-                        break;
-
-                OPTION_LONG("tpm2-public-key-pcrs", "PCR1+PCR2+…",
-                            "Enroll signed TPM2 PCR policy for specified TPM2 PCRs"):
-                        auto_public_key_pcr_mask = false;
-                        r = tpm2_parse_pcr_argument_to_mask(opts.arg, &arg_tpm2_public_key_pcr_mask);
-                        if (r < 0)
-                                return r;
-
-                        break;
-
-                OPTION_LONG("tpm2-pcrlock", "PATH",
-                            "Specify pcrlock policy to lock against"):
-                        r = parse_path_argument(opts.arg, /* suppress_root= */ false, &arg_tpm2_pcrlock);
-                        if (r < 0)
-                                return r;
-
-                        auto_pcrlock = false;
                         break;
 
                 OPTION_GROUP("Partition Control"): {}
@@ -10789,22 +10451,6 @@ static int parse_argv(int argc, char *argv[]) {
         if (arg_split && !arg_node)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                        "A path to an image file must be specified when --split is used.");
-
-        if (auto_pcrlock) {
-                assert(!arg_tpm2_pcrlock);
-
-                r = tpm2_pcrlock_search_file(NULL, NULL, &arg_tpm2_pcrlock);
-                if (r < 0) {
-                        if (r != -ENOENT)
-                                log_warning_errno(r, "Search for pcrlock.json failed, assuming it does not exist: %m");
-                } else
-                        log_debug("Automatically using pcrlock policy '%s'.", arg_tpm2_pcrlock);
-        }
-
-        if (auto_public_key_pcr_mask) {
-                assert(arg_tpm2_public_key_pcr_mask == 0);
-                arg_tpm2_public_key_pcr_mask = INDEX_TO_MASK(uint32_t, TPM2_PCR_KERNEL_BOOT);
-        }
 
         if (arg_pretty < 0 && isatty_safe(STDOUT_FILENO))
                 arg_pretty = true;

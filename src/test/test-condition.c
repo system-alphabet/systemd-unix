@@ -9,7 +9,6 @@
 #include "sd-id128.h"
 
 #include "alloc-util.h"
-#include "apparmor-util.h"
 #include "architecture.h"
 #include "battery-util.h"
 #include "cgroup-util.h"
@@ -32,7 +31,6 @@
 #include "path-util.h"
 #include "psi-util.h"
 #include "rm-rf.h"
-#include "selinux-util.h"
 #include "smack-util.h"
 #include "stdio-util.h"
 #include "string-util.h"
@@ -871,14 +869,6 @@ TEST(condition_test_security) {
         ASSERT_OK_ZERO(condition_test(condition, environ));
         condition_free(condition);
 
-        ASSERT_NOT_NULL((condition = condition_new(CONDITION_SECURITY, "selinux", false, true)));
-        ASSERT_OK_NE(condition_test(condition, environ), mac_selinux_use());
-        condition_free(condition);
-
-        ASSERT_NOT_NULL((condition = condition_new(CONDITION_SECURITY, "apparmor", false, false)));
-        ASSERT_OK_EQ(condition_test(condition, environ), mac_apparmor_use());
-        condition_free(condition);
-
         ASSERT_NOT_NULL((condition = condition_new(CONDITION_SECURITY, "tomoyo", false, false)));
         ASSERT_OK_EQ(condition_test(condition, environ), mac_tomoyo_use());
         condition_free(condition);
@@ -907,8 +897,6 @@ TEST(condition_test_security) {
 
 TEST(print_securities) {
         log_info("------ enabled security technologies ------");
-        log_info("SELinux: %s", yes_no(mac_selinux_use()));
-        log_info("AppArmor: %s", yes_no(mac_apparmor_use()));
         log_info("Tomoyo: %s", yes_no(mac_tomoyo_use()));
         log_info("IMA: %s", yes_no(use_ima()));
         log_info("SMACK: %s", yes_no(mac_smack_use()));

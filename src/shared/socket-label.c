@@ -9,7 +9,6 @@
 #include "log.h"
 #include "mkdir.h"
 #include "parse-util.h"
-#include "selinux-util.h"
 #include "smack-util.h"
 #include "socket-label.h"
 #include "socket-util.h"
@@ -75,7 +74,6 @@ int socket_address_listen(
                 bool transparent,
                 mode_t directory_mode,
                 mode_t socket_mode,
-                const char *selinux_label,
                 const char *smack_label,
                 char **xattr_entrypoint,
                 char **xattr_listen) {
@@ -93,16 +91,7 @@ int socket_address_listen(
         if (socket_address_family(a) == AF_INET6 && !socket_ipv6_is_supported())
                 return -EAFNOSUPPORT;
 
-        if (selinux_label) {
-                r = mac_selinux_create_socket_prepare(selinux_label);
-                if (r < 0)
-                        return r;
-        }
-
         fd = RET_NERRNO(socket(socket_address_family(a), a->type | flags, a->protocol));
-
-        if (selinux_label)
-                mac_selinux_create_socket_clear();
 
         if (fd < 0)
                 return fd;
@@ -158,14 +147,14 @@ int socket_address_listen(
 
                 /* Enforce the right access mode for the socket */
                 WITH_UMASK(~socket_mode) {
-                        r = mac_selinux_bind(fd, &a->sockaddr.sa, a->size);
+                        r = RET_NERRNO(bind(fd, &a->sockaddr.sa, a->size));
                         if (r == -EADDRINUSE) {
                                 /* Unlink and try again */
 
                                 if (unlink(p) < 0)
                                         return r; /* didn't work, return original error */
 
-                                r = mac_selinux_bind(fd, &a->sockaddr.sa, a->size);
+                                r = RET_NERRNO(bind(fd, &a->sockaddr.sa, a->size));
                         }
                         if (r < 0)
                                 return r;

@@ -13,22 +13,16 @@ option('mode', type : 'combo', choices : ['developer', 'release'],
 
 option('split-bin', type : 'combo', choices : ['auto', 'true', 'false'],
        description : 'sbin is not a symlink to bin')
-option('link-udev-shared', type : 'boolean',
-       description : 'link systemd-udevd and its helpers to libsystemd-shared.so')
+
 option('systemd-multicall-binary', type : 'boolean', value : false,
        description : 'link systemd+systemd-executor as a single binary')
 option('link-executor-shared', type : 'boolean',
        description : 'link (separate) systemd-executor to libsystemd-shared.so and libsystemd-core.so')
 option('link-systemctl-shared', type: 'boolean',
        description : 'link systemctl against libsystemd-shared.so')
-option('link-networkd-shared', type: 'boolean',
-       description : 'link systemd-networkd and its helpers to libsystemd-shared.so')
-option('link-timesyncd-shared', type: 'boolean',
-       description : 'link systemd-timesyncd and its helpers to libsystemd-shared.so')
-option('link-journalctl-shared', type: 'boolean',
-       description : 'link journalctl against libsystemd-shared.so')
-option('link-boot-shared', type: 'boolean',
-       description : 'link bootctl and systemd-bless-boot against libsystemd-shared.so')
+
+
+
 option('link-portabled-shared', type: 'boolean',
        description : 'link systemd-portabled and its helpers to libsystemd-shared.so')
 option('first-boot-full-preset', type: 'boolean', value: false,
@@ -37,9 +31,7 @@ option('first-boot-full-preset', type: 'boolean', value: false,
 option('static-libsystemd', type : 'combo',
        choices : ['false', 'true', 'pic', 'no-pic'],
        description : 'install a static library for libsystemd')
-option('static-libudev', type : 'combo',
-       choices : ['false', 'true', 'pic', 'no-pic'],
-       description : 'install a static library for libudev')
+
 option('standalone-binaries', type : 'boolean', value : false,
        description : 'also build standalone versions of supported binaries')
 option('build-static', type : 'boolean', value : false,
@@ -96,12 +88,10 @@ option('hibernate', type : 'boolean',
        description : 'support for hibernation')
 option('ldconfig', type : 'boolean',
        description : 'support for dynamic linker cache creation')
-option('resolve', type : 'boolean',
-       description : 'systemd-resolved stack')
+
 option('efi', type : 'boolean',
        description : 'enable EFI support')
-option('tpm', type : 'boolean',
-       description : 'TPM should be used to log events and extend the registers')
+
 option('environment-d', type : 'boolean',
        description : 'support for environment.d')
 option('binfmt', type : 'boolean',
@@ -122,14 +112,10 @@ option('pstore', type : 'boolean',
        description : 'install the pstore archival tool')
 option('oomd', type : 'boolean',
        description : 'install the userspace oom killer')
-option('logind', type : 'boolean',
-       description : 'install the systemd-logind stack')
-option('hostnamed', type : 'boolean',
-       description : 'install the systemd-hostnamed stack')
-option('localed', type : 'boolean',
-       description : 'install the systemd-localed stack')
-option('machined', type : 'boolean',
-       description : 'install the systemd-machined stack')
+
+
+
+
 option('portabled', type : 'boolean',
        description : 'install the systemd-portabled stack')
 option('sysext', type : 'boolean',
@@ -138,22 +124,17 @@ option('mountfsd', type : 'boolean',
        description : 'install the systemd-mountfsd stack')
 option('userdb', type : 'boolean',
        description : 'install the systemd-userdbd stack')
-option('homed', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'install the systemd-homed stack')
-option('networkd', type : 'boolean',
-       description : 'install the systemd-networkd stack')
+
+
 option('default-network', type : 'boolean', value : false,
        description : 'install default .network files')
-option('timedated', type : 'boolean',
-       description : 'install the systemd-timedated daemon')
-option('timesyncd', type : 'boolean',
-       description : 'install the systemd-timesyncd daemon')
+
+
 option('imds', type : 'feature',
        description : 'install the systemd-imds stack')
 option('imds-network', type : 'combo', choices : ['unlocked', 'locked'],
        description : 'whether to default to locked/unlocked IMDS network mode')
-option('journal-storage-default', type : 'combo', choices : ['persistent', 'auto', 'volatile', 'none'],
-       description : 'default storage mode for journald (main namespace)')
+
 option('remote', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'support for "journal over the network"')
 option('create-log-dirs', type : 'boolean',
@@ -340,12 +321,10 @@ option('video-gid', type : 'integer', value : 0,
        description : 'soft-static allocation for the "video" group')
 option('wheel-gid', type : 'integer', value : 0,
        description : 'soft-static allocation for the "wheel" group')
-option('systemd-journal-gid', type : 'integer', value : 0,
-       description : 'soft-static allocation for the systemd-journal group')
+
 option('systemd-network-uid', type : 'integer', value : 0,
        description : 'soft-static allocation for the systemd-network user')
-option('systemd-resolve-uid', type : 'integer', value : 0,
-       description : 'soft-static allocation for the systemd-resolve user')
+
 option('systemd-timesync-uid', type : 'integer', value : 0,
        description : 'soft-static allocation for the systemd-timesync user')
 option('systemd-imds-uid', type : 'integer', value : 0,
@@ -361,6 +340,10 @@ option('default-kill-user-processes', type : 'boolean',
        description : 'the default value for KillUserProcesses= setting')
 option('gshadow', type : 'boolean',
        description : 'support for shadow group')
+option('systemd-journal-gid', type : 'integer', value : 0,
+       description : 'soft-static allocation for the systemd-journal group')
+option('systemd-resolve-uid', type : 'integer', value : 0,
+       description : 'soft-static allocation for the systemd-resolve user')
 option('default-locale', type : 'string', value : 'C.UTF-8',
        description : 'default locale used when /etc/locale.conf does not exist')
 option('nspawn-locale', type : 'string', value : 'C.UTF-8',
@@ -406,10 +389,7 @@ option('www-target', type : 'string',
 
 option('seccomp', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'SECCOMP support')
-option('selinux', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'SELinux support')
-option('apparmor', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'AppArmor support')
+
 option('smack', type : 'boolean',
        description : 'SMACK support')
 option('smack-run-label', type : 'string',
@@ -473,10 +453,7 @@ option('p11kit', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 
        description : 'p11kit support')
 option('libfido2', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'FIDO2 support')
-option('tpm2', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'TPM2 support')
-option('tpm2-nvpcr-base', type : 'integer', value: 0x01d10200,
-       description : 'Base for TPM2 nvindex based PCRs')
+
 option('elfutils', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'elfutils support')
 option('zlib', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
@@ -504,8 +481,7 @@ option('libarchive', type : 'feature',
 option('libmount', type : 'feature',
        description : 'libmount support')
 
-option('bootloader', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'sd-boot/stub and userspace tools')
+
 option('sbat-distro', type : 'string', value : 'auto',
        description : 'SBAT distribution ID, e.g. fedora, or auto for autodetection')
 option('sbat-distro-generation', type : 'integer', value : 1,
@@ -565,8 +541,7 @@ option('llvm-fuzz', type : 'boolean', value : false,
        description : 'build against LLVM libFuzzer')
 option('kernel-install', type: 'boolean', value: true,
        description : 'install kernel-install and associated files')
-option('ukify', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'install ukify')
+
 option('analyze', type: 'boolean', value: true,
        description : 'install systemd-analyze')
 

@@ -2628,7 +2628,6 @@ static const BusProperty execute_properties[] = {
         { "StandardError",                         bus_append_standard_inputs                    },
         { "StandardInputText",                     bus_append_standard_input_text                },
         { "StandardInputData",                     bus_append_standard_input_data                },
-        { "AppArmorProfile",                       bus_append_string_with_ignore                 },
         { "SmackProcessLabel",                     bus_append_string_with_ignore                 },
         { "CapabilityBoundingSet",                 bus_append_capabilities                       },
         { "AmbientCapabilities",                   bus_append_capabilities                       },

@@ -31,7 +31,6 @@ executables += [
                 'dependencies' : [
                         libcryptsetup_cflags,
                         libmount_cflags,
-                        libselinux_cflags,
                 ],
         },
         executable_template + {

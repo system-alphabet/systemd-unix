@@ -10,24 +10,8 @@ units = [
         { 'file' : 'exit.target' },
         { 'file' : 'graphical-session-pre.target' },
         { 'file' : 'graphical-session.target' },
-        {
-          'file' : 'machine.slice',
-          'conditions' : ['ENABLE_MACHINED'],
-        },
-        {
-          'file' : 'machines.target',
-          'conditions' : ['ENABLE_MACHINED'],
-        },
-        {
-          'file' : 'systemd-machined.service.in',
-          'conditions' : ['ENABLE_MACHINED'],
-          'symlinks' : ['dbus-org.freedesktop.machine1.service'],
-        },
-        {
-          'file' : 'systemd-machined.socket',
-          'conditions' : ['ENABLE_MACHINED'],
-          'symlinks' : ['sockets.target.wants/'],
-        },
+
+
         {
           'file' : 'systemd-importd.service.in',
           'conditions' : ['ENABLE_IMPORTD'],

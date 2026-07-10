@@ -32,9 +32,7 @@ StandardOutput=tty
 TTYPath=/dev/pts/%I
 TTYReset=yes
 TTYVHangup=yes
-{% if not ENABLE_LOGIND %}
 KillMode=process
-{% endif %}
 IgnoreSIGPIPE=no
 SendSIGHUP=yes
 ImportCredential=tty.container.%I.agetty.*:agetty.

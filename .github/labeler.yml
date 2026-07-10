@@ -98,9 +98,6 @@ growfs:
 hibernate-resume:
   - changed-files:
     - any-glob-to-any-file: '**/*hibernate-resume*'
-homed:
-  - changed-files:
-    - any-glob-to-any-file: ['src/home*', 'units/*home*']
 hostname:
   - changed-files:
     - any-glob-to-any-file: ['src/hostname/*', 'src/shared/*hostname*', 'units/*hostname*']
@@ -113,9 +110,6 @@ import:
 integritysetup:
   - changed-files:
     - any-glob-to-any-file: '**/*integrity*'
-journal:
-  - changed-files:
-    - any-glob-to-any-file: ['src/journal/*', 'src/libsystemd/sd-journal/*', 'units/systemd-journal-catalog*', 'units/systemd-journal-flush*', 'units/systemd-journald*']
 journal-remote:
   - changed-files:
     - any-glob-to-any-file: ['src/journal-remote/*', 'units/systemd-journal-gateway*', 'units/systemd-journal-remote*']
@@ -149,9 +143,6 @@ mount:
 mountfsd:
   - changed-files:
     - any-glob-to-any-file: '**/*mountfsd*'
-network:
-  - changed-files:
-    - any-glob-to-any-file: ['src/libsystemd-network/**/*', 'src/network/**/*', 'network/*', 'test/networkd-test.py', 'test/test-network*']
 notify:
   - changed-files:
     - any-glob-to-any-file: 'src/notify/*'
@@ -191,9 +182,6 @@ rpm:
 run:
   - changed-files:
     - any-glob-to-any-file: ['src/run/*', 'man/systemd-run*']
-sd-boot/sd-stub/bootctl:
-  - changed-files:
-    - any-glob-to-any-file: ['src/boot/**/*', 'src/bootctl/*', 'man/bootctl*', 'man/systemd-boot.xml']
 sd-bus:
   - changed-files:
     - any-glob-to-any-file: '**/sd-bus*/**'
@@ -289,12 +277,6 @@ tmpfiles:
 tpm2:
   - changed-files:
     - any-glob-to-any-file: ['**/*tpm2*', '**/*tpm-*']
-udev:
-  - changed-files:
-    - any-glob-to-any-file: ['src/udev/**/*', 'src/libudev/*', 'man/*udev*', 'rules.d/*']
-uki:
-  - changed-files:
-    - any-glob-to-any-file: '**/ukify*'
 units:
   - changed-files:
     - any-glob-to-any-file: 'units/**/*'

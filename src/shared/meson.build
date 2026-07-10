@@ -3,7 +3,6 @@
 shared_sources = files(
         'acl-util.c',
         'acpi-fpdt.c',
-        'apparmor-util.c',
         'ask-password-agent.c',
         'ask-password-api.c',
         'async.c',
@@ -53,7 +52,6 @@ shared_sources = files(
         'creds-util.c',
         'crypto-util.c',
         'cryptsetup-fido2.c',
-        'cryptsetup-tpm2.c',
         'cryptsetup-util.c',
         'curl-util.c',
         'daemon-util.c',
@@ -168,7 +166,7 @@ shared_sources = files(
         'password-quality-util-passwdqc.c',
         'password-quality-util-pwquality.c',
         'pcre2-util.c',
-        'pcrextend-util.c',
+
         'pe-binary.c',
         'pkcs7-util.c',
         'pkcs11-util.c',
@@ -192,7 +190,7 @@ shared_sources = files(
         'rm-rf.c',
         'seccomp-util.c',
         'securebits-util.c',
-        'selinux-util.c',
+
         'serialize.c',
         'service-util.c',
         'shift-uid.c',
@@ -207,12 +205,9 @@ shared_sources = files(
         'ssl-util.c',
         'storage-util.c',
         'switch-root.c',
-        'swtpm-util.c',
         'tar-util.c',
         'tmpfile-util.c',
         'tomoyo-util.c',
-        'tpm2-util.c',
-        'tpm2-event-log.c',
         'tsm-report.c',
         'udev-util.c',
         'unit-file.c',
@@ -245,8 +240,7 @@ shared_sources = files(
         'varlink-io.systemd.NamespaceResource.c',
         'varlink-io.systemd.Network.c',
         'varlink-io.systemd.Network.Link.c',
-        'varlink-io.systemd.PCRExtend.c',
-        'varlink-io.systemd.PCRLock.c',
+
         'varlink-io.systemd.Repart.c',
         'varlink-io.systemd.Report.c',
         'varlink-io.systemd.Report.Signer.c',
@@ -398,7 +392,6 @@ shared_sources += [dns_type_from_name_inc, dns_type_to_name_inc]
 libshared_name = 'systemd-shared-@0@'.format(shared_lib_tag)
 
 libshared_deps = [libacl_cflags,
-                  libapparmor_cflags,
                   libarchive_cflags,
                   libaudit_cflags,
                   libblkid_cflags,
@@ -421,12 +414,10 @@ libshared_deps = [libacl_cflags,
                   libpwquality_cflags,
                   libqrencode_cflags,
                   libseccomp_cflags,
-                  libselinux_cflags,
                   libucontext,
                   libxenctrl_cflags,
                   libxz_cflags,
-                  libzstd_cflags,
-                  tpm2_cflags]
+                  libzstd_cflags]
 
 libshared_sym_path = meson.current_source_dir() / 'libshared.sym'
 libshared_build_dir = meson.current_build_dir()

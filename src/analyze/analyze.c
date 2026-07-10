@@ -19,7 +19,6 @@
 #include "analyze-cat-config.h"
 #include "analyze-chid.h"
 #include "analyze-compare-versions.h"
-#include "analyze-condition.h"
 #include "analyze-critical-chain.h"
 #include "analyze-dlopen-metadata.h"
 #include "analyze-dot.h"
@@ -27,18 +26,15 @@
 #include "analyze-exit-status.h"
 #include "analyze-fdstore.h"
 #include "analyze-filesystems.h"
-#include "analyze-has-tpm2.h"
+
 #include "analyze-image-policy.h"
 #include "analyze-inspect-elf.h"
 #include "analyze-log-control.h"
 #include "analyze-malloc.h"
-#include "analyze-nvpcrs.h"
 #include "analyze-pcrs.h"
 #include "analyze-plot.h"
-#include "analyze-security.h"
 #include "analyze-service-watchdogs.h"
 #include "analyze-smbios11.h"
-#include "analyze-srk.h"
 #include "analyze-syscall-filter.h"
 #include "analyze-time.h"
 #include "analyze-timespan.h"
@@ -47,8 +43,7 @@
 #include "analyze-unit-gdb.h"
 #include "analyze-unit-paths.h"
 #include "analyze-unit-shell.h"
-#include "analyze-verify.h"
-#include "analyze-verify-util.h"
+
 #include "build.h"
 #include "bus-error.h"
 #include "bus-unit-util.h"
@@ -89,7 +84,6 @@ char *arg_debugger = NULL;
 char **arg_debugger_args = NULL;
 const char *arg_host = NULL;
 RuntimeScope arg_runtime_scope = RUNTIME_SCOPE_SYSTEM;
-RecursiveErrors arg_recursive_errors = _RECURSIVE_ERRORS_INVALID;
 bool arg_man = true;
 bool arg_generators = false;
 const char *arg_instance = "test_instance";
@@ -300,8 +294,6 @@ VERB(verb_transient_settings, "transient-settings", "TYPE...", 2, VERB_ANY, 0,
      "List transient settings for unit TYPE");
 
 VERB_GROUP("Expression Evaluation");
-VERB_SCOPE(, verb_condition, "condition", "CONDITION...", VERB_ANY, VERB_ANY, 0,
-           "Evaluate conditions and asserts");
 VERB_SCOPE(, verb_compare_versions, "compare-versions", "V1 [OP] V2", 3, 4, 0,
            "Compare two version strings");
 VERB_SCOPE(, verb_image_policy, "image-policy", "POLICY...", 2, 2, 0,
@@ -316,10 +308,6 @@ VERB_SCOPE(, verb_timespan, "timespan", "SPAN...", 2, VERB_ANY, 0,
            "Validate a time span");
 
 VERB_GROUP("Unit & Service Analysis");
-VERB_SCOPE(, verb_verify, "verify", "FILE...", 2, VERB_ANY, 0,
-           "Check unit files for correctness");
-VERB_SCOPE(, verb_security, "security", "[UNIT...]", VERB_ANY, VERB_ANY, 0,
-           "Analyze security of unit");
 VERB_SCOPE(, verb_fdstore, "fdstore", "SERVICE...", 2, VERB_ANY, 0,
            "Show file descriptor store contents of service");
 VERB_SCOPE(, verb_malloc, "malloc", "[D-BUS SERVICE...]", VERB_ANY, VERB_ANY, 0,
@@ -334,18 +322,6 @@ VERB_SCOPE(, verb_elf_inspection, "inspect-elf", "FILE...", 2, VERB_ANY, 0,
            "Parse and print ELF package metadata");
 VERB_SCOPE(, verb_dlopen_metadata, "dlopen-metadata", "FILE", 2, 2, 0,
            "Parse and print ELF dlopen metadata");
-
-VERB_GROUP("TPM Operations");
-VERB_SCOPE(, verb_has_tpm2, "has-tpm2", NULL, VERB_ANY, 1, 0,
-           "Report whether TPM2 support is available");
-VERB_SCOPE(, verb_identify_tpm2, "identify-tpm2", NULL, VERB_ANY, 1, 0,
-           "Show TPM2 vendor information");
-VERB_SCOPE(, verb_pcrs, "pcrs", "[PCR...]", VERB_ANY, VERB_ANY, 0,
-           "Show TPM2 PCRs and their names");
-VERB_SCOPE(, verb_nvpcrs, "nvpcrs", "[NVPCR...]", VERB_ANY, VERB_ANY, 0,
-           "Show additional TPM2 PCRs stored in NV indexes");
-VERB_SCOPE(, verb_srk, "srk", "[>FILE]", VERB_ANY, 1, 0,
-           "Write TPM2 SRK (to FILE)");
 
 /* The following are deprecated and not shown in --help. */
 VERB_SCOPE(, verb_log_control,        "log-level",         NULL, VERB_ANY, 2, 0, /* help= */ NULL);
@@ -392,17 +368,6 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
 
                 OPTION('q', "quiet", NULL, "Do not emit hints"):
                         arg_quiet = true;
-                        break;
-
-                OPTION_LONG("recursive-errors", "MODE", "Control which units are verified"):
-                        if (streq(opts.arg, "help"))
-                                return DUMP_STRING_TABLE(recursive_errors, RecursiveErrors, _RECURSIVE_ERRORS_MAX);
-
-                        r = recursive_errors_from_string(opts.arg);
-                        if (r < 0)
-                                return log_error_errno(r, "Unknown mode passed to --recursive-errors='%s'.", opts.arg);
-
-                        arg_recursive_errors = r;
                         break;
 
                 OPTION_LONG("root", "PATH", "Operate on an alternate filesystem root"):

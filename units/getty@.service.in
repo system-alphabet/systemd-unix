@@ -42,9 +42,7 @@ TTYPath=/dev/%I
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
-{% if not ENABLE_LOGIND %}
 KillMode=process
-{% endif %}
 IgnoreSIGPIPE=no
 SendSIGHUP=yes
 

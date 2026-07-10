@@ -26,18 +26,6 @@ const char* const systemd_features =
         " -AUDIT"
 #endif
 
-#if HAVE_SELINUX
-        " +SELINUX"
-#else
-        " -SELINUX"
-#endif
-
-#if HAVE_APPARMOR
-        " +APPARMOR"
-#else
-        " -APPARMOR"
-#endif
-
 #if ENABLE_IMA
         " +IMA"
 #else
@@ -162,11 +150,7 @@ const char* const systemd_features =
         " -QRENCODE"
 #endif
 
-#if HAVE_TPM2
-        " +TPM2"
-#else
-        " -TPM2"
-#endif
+" -TPM2"
 
         /* compressors */
 

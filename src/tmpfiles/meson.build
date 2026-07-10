@@ -14,7 +14,6 @@ executables += [
                             offline_passwd_c,
                 'dependencies' : [
                         libacl_cflags,
-                        libselinux_cflags,
                 ],
         },
         executable_template + {
@@ -29,7 +28,6 @@ executables += [
                 ],
                 'dependencies' : [
                         libacl_cflags,
-                        libselinux_cflags,
                 ],
         },
         test_template + {

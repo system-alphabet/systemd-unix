@@ -60,8 +60,6 @@
  *
  * Unsupported:
  *
- * apparmorProfile
- * selinuxLabel + mountLabel
  * hugepageLimits
  * network
  * rdma
@@ -367,11 +365,9 @@ static int oci_process(const char *name, sd_json_variant *v, sd_json_dispatch_fl
                 { "env",             SD_JSON_VARIANT_ARRAY,   json_dispatch_strv_environment, offsetof(Settings, environment),       0                  },
                 { "args",            SD_JSON_VARIANT_ARRAY,   oci_args,                       offsetof(Settings, parameters),        0                  },
                 { "rlimits",         SD_JSON_VARIANT_ARRAY,   oci_rlimits,                    0,                                     0                  },
-                { "apparmorProfile", SD_JSON_VARIANT_STRING,  oci_unsupported,                0,                                     SD_JSON_PERMISSIVE },
                 { "capabilities",    SD_JSON_VARIANT_OBJECT,  oci_capabilities,               0,                                     0                  },
                 { "noNewPrivileges", SD_JSON_VARIANT_BOOLEAN, sd_json_dispatch_tristate,      offsetof(Settings, no_new_privileges), 0                  },
                 { "oomScoreAdj",     SD_JSON_VARIANT_INTEGER, oci_oom_score_adj,              0,                                     0                  },
-                { "selinuxLabel",    SD_JSON_VARIANT_STRING,  oci_unsupported,                0,                                     SD_JSON_PERMISSIVE },
                 { "user",            SD_JSON_VARIANT_OBJECT,  oci_user,                       0,                                     0                  },
                 {}
         };
@@ -446,7 +442,6 @@ static bool oci_exclude_mount(const char *path) {
                         "/run",
                         "/sys",
                         "/sys",
-                        "/sys/fs/selinux",
                         "/tmp"))
                 return true;
 

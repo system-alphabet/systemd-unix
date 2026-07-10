@@ -23,7 +23,7 @@ rules = [
                '60-persistent-v4l.rules',
                '60-sensor.rules',
                '60-serial.rules',
-               '60-tpm2-id.rules',
+
                '65-integration.rules',
                '70-camera.rules',
                '70-joystick.rules',
@@ -46,8 +46,7 @@ rules = [
         [files('70-memory.rules'),
          conf.get('HAVE_DMI') == 1],
 
-        [files('70-power-switch.rules'),
-         conf.get('ENABLE_LOGIND') == 1]
+
 ]
 
 all_rules = []
@@ -69,9 +68,7 @@ rules_in = [
         ['64-btrfs.rules'],
         ['99-systemd.rules'],
 
-        ['70-uaccess.rules',   conf.get('ENABLE_LOGIND') == 1 and conf.get('HAVE_ACL') == 1],
-        ['71-seat.rules',      conf.get('ENABLE_LOGIND') == 1],
-        ['73-seat-late.rules', conf.get('ENABLE_LOGIND') == 1],
+
 
         ['90-vconsole.rules',  conf.get('ENABLE_VCONSOLE') == 1],
 ]

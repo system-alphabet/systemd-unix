@@ -7,13 +7,12 @@ endif
 files = [['README'                                  ],
          ['home.conf'                               ],
          ['root.conf'                               ],
-         ['journal-nocow.conf'                      ],
          ['portables.conf',       'ENABLE_PORTABLED'],
-         ['systemd-network.conf', 'ENABLE_NETWORKD' ],
+
          ['systemd-nologin.conf', 'HAVE_PAM'        ],
-         ['systemd-nspawn.conf',  'ENABLE_MACHINED' ],
+
          ['systemd-pstore.conf',  'ENABLE_PSTORE'   ],
-         ['systemd-resolve.conf', 'ENABLE_RESOLVE'  ],
+
          ['20-systemd-varlink.conf'                 ],
          ['systemd-tmp.conf'                        ],
          ['tmp.conf'                                ],

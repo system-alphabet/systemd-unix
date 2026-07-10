@@ -9,7 +9,6 @@ typedef enum EnrollType {
         ENROLL_RECOVERY,
         ENROLL_PKCS11,
         ENROLL_FIDO2,
-        ENROLL_TPM2,
         _ENROLL_TYPE_MAX,
         _ENROLL_TYPE_INVALID = -EINVAL,
 } EnrollType;
@@ -18,7 +17,6 @@ typedef enum UnlockType {
         UNLOCK_PASSWORD,
         UNLOCK_KEYFILE,
         UNLOCK_FIDO2,
-        UNLOCK_TPM2,
         UNLOCK_EMPTY,
         UNLOCK_HEADLESS,
         _UNLOCK_TYPE_MAX,
@@ -49,7 +47,6 @@ typedef struct EnrollContext {
         /* Unlock side */
         char *unlock_keyfile;
         char *unlock_fido2_device;
-        char *unlock_tpm2_device;
         char *unlock_password;          /* used by Varlink; NULL on CLI path */
 
         /* New password to enroll (mechanism == password). When NULL the helpers fall back to
@@ -67,20 +64,6 @@ typedef struct EnrollContext {
 
         /* PKCS#11 */
         char *pkcs11_token_uri;
-
-        /* TPM2 */
-        char *tpm2_device;
-        uint32_t tpm2_seal_key_handle;
-        char *tpm2_device_key;
-        Tpm2PCRValue *tpm2_hash_pcr_values;
-        size_t tpm2_n_hash_pcr_values;
-        bool tpm2_pin;
-        char *tpm2_public_key;
-        bool tpm2_load_public_key;
-        char *tpm2_public_key_policyref;
-        uint32_t tpm2_public_key_pcr_mask;
-        char *tpm2_signature;
-        char *tpm2_pcrlock;
 
         /* Wipe selection */
         int *wipe_slots;
@@ -106,7 +89,6 @@ typedef struct EnrollContext {
                 .unlock_type = UNLOCK_PASSWORD,                         \
                 .fido2_parameters_in_header = true,                     \
                 .fido2_lock_with = FIDO2ENROLL_PIN | FIDO2ENROLL_UP,    \
-                .tpm2_load_public_key = true,                           \
                 .wipe_slots_scope = WIPE_EXPLICIT,                      \
                 .wipe_except_slot = -1,                                 \
                 .interactive = true,                                    \

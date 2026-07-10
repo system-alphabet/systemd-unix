@@ -18,6 +18,7 @@
 #include "format-table.h"
 #include "hashmap.h"
 #include "hexdecoct.h"
+#include "iovec-util.h"
 #include "json-util.h"
 #include "libmount-util.h"
 #include "log.h"
@@ -35,8 +36,7 @@
 #include "strv.h"
 #include "terminal-util.h"
 #include "time-util.h"
-#include "tpm2-pcr.h"
-#include "tpm2-util.h"
+
 #include "user-util.h"
 #include "varlink-io.systemd.Credentials.h"
 #include "varlink-util.h"
@@ -763,15 +763,6 @@ static int verb_setup(int argc, char *argv[], uintptr_t _data, void *userdata) {
         return EXIT_SUCCESS;
 }
 
-/* For backward compatibility. Hidden from help. */
-VERB(verb_has_tpm2, "has-tpm2", NULL, VERB_ANY, 1, 0, /* help= */ NULL);
-static int verb_has_tpm2(int argc, char *argv[], uintptr_t _data, void *userdata) {
-        if (!arg_quiet)
-                log_notice("The 'systemd-creds %1$s' command has been replaced by 'systemd-analyze %1$s'. Redirecting invocation.", argv[0]);
-
-        return verb_has_tpm2_generic(arg_quiet);
-}
-
 static int help(void) {
         _cleanup_free_ char *link = NULL;
         _cleanup_(table_unrefp) Table *options = NULL, *verbs = NULL;
@@ -942,7 +933,7 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
 
                 OPTION_LONG("tpm2-device", "PATH", "Pick TPM2 device"):
                         if (streq(opts.arg, "list"))
-                                return tpm2_list_devices(arg_legend, arg_quiet);
+                                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not available.");
 
                         arg_tpm2_device = streq(opts.arg, "auto") ? NULL : opts.arg;
                         break;
@@ -950,9 +941,7 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
                 OPTION_LONG("tpm2-pcrs", "PCR1+PCR2+PCR3+…",
                             "Specify TPM2 PCRs to seal against (fixed hash)"):
                         /* For fixed hash PCR policies only */
-                        r = tpm2_parse_pcr_argument_to_mask(opts.arg, &arg_tpm2_pcr_mask);
-                        if (r < 0)
-                                return r;
+                        log_warning("TPM2 PCR argument option ignored, TPM2 support not available.");
                         break;
 
                 OPTION_LONG("tpm2-public-key", "PATH",
@@ -965,9 +954,7 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
                 OPTION_LONG("tpm2-public-key-pcrs", "PCR1+PCR2+…",
                             "Specify TPM2 PCRs to seal against (public key)"):
                         /* For public key PCR policies only */
-                        r = tpm2_parse_pcr_argument_to_mask(opts.arg, &arg_tpm2_public_key_pcr_mask);
-                        if (r < 0)
-                                return r;
+                        log_warning("TPM2 public key PCR argument option ignored, TPM2 support not available.");
                         break;
 
                 OPTION_LONG("tpm2-signature", "PATH",
@@ -1043,7 +1030,7 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
         if (arg_tpm2_pcr_mask == UINT32_MAX)
                 arg_tpm2_pcr_mask = 0;
         if (arg_tpm2_public_key_pcr_mask == UINT32_MAX)
-                arg_tpm2_public_key_pcr_mask = UINT32_C(1) << TPM2_PCR_KERNEL_BOOT;
+                arg_tpm2_public_key_pcr_mask = 0;
 
         r = sd_varlink_invocation(SD_VARLINK_ALLOW_ACCEPT);
         if (r < 0)

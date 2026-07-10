@@ -12,7 +12,7 @@ Description=Disk Repartitioning Service
 Documentation=man:systemd-repart.service(8)
 DefaultDependencies=no
 Wants=modprobe@loop.service modprobe@dm_mod.service
-After=modprobe@loop.service modprobe@dm_mod.service systemd-tpm2-setup-early.service
+After=modprobe@loop.service modprobe@dm_mod.service
 Conflicts=shutdown.target
 Before=shutdown.target
 

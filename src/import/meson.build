@@ -19,7 +19,6 @@ executables += [
                 ),
                 'dependencies' : [
                         libarchive_cflags,
-                        libselinux_cflags,
                 ],
         },
         libexec_template + {

@@ -43,9 +43,6 @@ policy:
           - name: growfs
             keys: ['systemd-growfs']
 
-          - name: homed
-            keys: ['systemd-homed', 'homectl', 'pam_systemd_home']
-
           - name: hostname
             keys: ['systemd-hostnamed', 'hostnamectl']
 
@@ -54,9 +51,6 @@ policy:
 
           - name: import
             keys: ['systemd-importd', 'importctl']
-
-          - name: journal
-            keys: ['systemd-journald', 'journalctl']
 
           - name: journal-remote
             keys: ['systemd-journal-remote', 'systemd-journal-upload', 'systemd-journal-gatewayd']
@@ -72,9 +66,6 @@ policy:
 
           - name: modules-load
             keys: ['systemd-modules-load']
-
-          - name: network
-            keys: ['systemd-networkd', 'networkctl', 'systemd-networkd-wait-online', 'systemd-network-generator']
 
           - name: nspawn
             keys: ['systemd-nspawn']
@@ -94,9 +85,6 @@ policy:
           - name: repart
             keys: ['systemd-repart']
 
-          - name: resolve
-            keys: ['systemd-resolved', 'resolvectl', 'nss-resolve']
-
           - name: rfkill
             keys: ['systemd-rfkill']
 
@@ -105,9 +93,6 @@ policy:
 
           - name: run
             keys: ['systemd-run']
-
-          - name: sd-boot/sd-stub/bootctl
-            keys: ['bootctl', 'systemd-boot', 'systemd-stub']
 
           - name: sysctl
             keys: ['systemd-sysctl']
@@ -126,9 +111,6 @@ policy:
 
           - name: timedate
             keys: ['systemd-timedate', 'timedatectl']
-
-          - name: timesync
-            keys: ['systemd-timesync']
 
           - name: tmpfiles
             keys: ['systemd-tmpfiles']

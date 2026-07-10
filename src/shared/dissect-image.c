@@ -54,7 +54,7 @@
 #include "nulstr-util.h"
 #include "os-util.h"
 #include "path-util.h"
-#include "pcrextend-util.h"
+
 #include "pidref.h"
 #include "proc-cmdline.h"
 #include "process-util.h"
@@ -3305,10 +3305,7 @@ static int do_crypt_activate_verity(
         log_debug("Activation of Verity via root hash succeeded.");
 
 done:
-        (void) pcrextend_verity_now(
-                        name,
-                        &verity->root_hash,
-                        measure_signature ? &verity->root_hash_sig : NULL);
+
         return 0;
 }
 

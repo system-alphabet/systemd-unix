@@ -59,7 +59,6 @@
 #include "process-util.h"
 #include "rm-rf.h"
 #include "runtime-scope.h"
-#include "selinux-util.h"
 #include "set.h"
 #include "sort-util.h"
 #include "stat-util.h"
@@ -925,9 +924,7 @@ static int resolve_mutable_directory(
                 if (fchmod(chmod_fd, hierarchy_mode) < 0)
                         return log_error_errno(errno, "Failed to chmod directory '%s/%s': %m", strempty(root), skip_leading_slash(path));
 
-                r = mac_selinux_fix_full(chmod_fd, /* inode_path= */ NULL, hierarchy, /* flags= */ 0);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to fix SELinux label for '%s/%s': %m", strempty(root), skip_leading_slash(path));
+                (void) chmod_fd;
         }
 
         r = chase(path, root, CHASE_PREFIX_ROOT, &resolved_path, NULL);
@@ -1293,9 +1290,7 @@ static int mount_overlayfs_with_op(
         if (atfd < 0)
                 return log_error_errno(errno, "Failed to open directory '%s': %m", meta_path);
 
-        r = mac_selinux_fix_full(atfd, /* inode_path= */ NULL, op->hierarchy, /* flags= */ 0);
-        if (r < 0)
-                return log_error_errno(r, "Failed to fix SELinux label for '%s': %m", meta_path);
+        (void) atfd;
 
         if (op->upper_dir && op->work_dir) {
                 r = mkdir_p(op->work_dir, 0700);
@@ -1306,9 +1301,7 @@ static int mount_overlayfs_with_op(
                 if (dfd < 0)
                         return log_error_errno(errno, "Failed to open directory '%s': %m", op->work_dir);
 
-                r = mac_selinux_fix_full(dfd, /* inode_path= */ NULL, op->hierarchy, /* flags= */ 0);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to fix SELinux label for '%s': %m", op->work_dir);
+                (void) dfd;
 
                 top_layer = op->upper_dir;
         } else {
@@ -1516,9 +1509,7 @@ static int store_info_in_meta(
         if (atfd < 0)
                 return log_error_errno(errno, "Failed to open directory '%s': %m", f);
 
-        r = mac_selinux_fix_full(atfd, /* inode_path= */ NULL, hierarchy, /* flags= */ 0);
-        if (r < 0)
-                return log_error_errno(r, "Failed to fix SELinux label for '%s': %m", hierarchy);
+        (void) atfd;
 
         r = write_extensions_file(image_class, extensions, meta_path, hierarchy);
         if (r < 0)
@@ -1601,8 +1592,6 @@ static int merge_hierarchy(
         assert(meta_path);
         assert(overlay_path);
         assert(workspace_path);
-
-        mac_selinux_init();
 
         r = determine_used_extensions(hierarchy, paths, &used_paths, &extensions_used);
         if (r < 0)

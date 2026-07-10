@@ -41,4 +41,4 @@ for symbol in $(nm -g --defined-only "$@" | grep " T " | cut -d" " -f3 | grep -w
     esac
 done
 
-echo "libsystemd: $sd_good/$sd_total libudev: $udev_good/$udev_total"
+echo "libsystemd: $sd_good/$sd_total"

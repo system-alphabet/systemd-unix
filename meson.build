@@ -28,7 +28,6 @@ else
 endif
 
 libsystemd_version = '0.44.0'
-libudev_version = '1.7.14'
 
 conf = configuration_data()
 conf.set_quoted('PROJECT_URL', 'https://systemd.io/')
@@ -110,9 +109,6 @@ endif
 conf.set10('BUMP_PROC_SYS_FS_FILE_MAX', get_option('bump-proc-sys-fs-file-max'))
 conf.set10('BUMP_PROC_SYS_FS_NR_OPEN',  get_option('bump-proc-sys-fs-nr-open'))
 conf.set('HIGH_RLIMIT_NOFILE',          512*1024)
-
-conf.set('JOURNAL_STORAGE_DEFAULT',     get_option('journal-storage-default'))
-conf.set('JOURNAL_STORAGE_DEFAULT_VAL', 'STORAGE_' + get_option('journal-storage-default').to_upper())
 
 # Meson ignores the preceding arguments when joining paths if an absolute
 # component is encountered, so this should canonicalize various paths when they
@@ -914,8 +910,8 @@ foreach option : ['adm-gid',
                   'utmp-gid',
                   'video-gid',
                   'wheel-gid',
-                  'systemd-journal-gid',
                   'systemd-imds-uid',
+                  'systemd-journal-gid',
                   'systemd-network-uid',
                   'systemd-resolve-uid',
                   'systemd-timesync-uid']
@@ -1109,24 +1105,6 @@ libseccomp_cflags = declare_dependency(
         compile_args : '-DSYSTEMD_CFLAGS_MARKER_LIBSECCOMP',
 )
 
-libselinux = dependency('libselinux',
-                        version : '>= 2.1.9',
-                        required : get_option('selinux'))
-conf.set10('HAVE_SELINUX', libselinux.found())
-libselinux_cflags = declare_dependency(
-        dependencies : libselinux.partial_dependency(includes: true, compile_args: true),
-        compile_args : '-DSYSTEMD_CFLAGS_MARKER_LIBSELINUX',
-)
-
-libapparmor = dependency('libapparmor',
-                         version : '>= 2.13',
-                         required : get_option('apparmor'))
-conf.set10('HAVE_APPARMOR', libapparmor.found())
-libapparmor_cflags = declare_dependency(
-        dependencies : libapparmor.partial_dependency(includes: true, compile_args: true),
-        compile_args : '-DSYSTEMD_CFLAGS_MARKER_LIBAPPARMOR',
-)
-
 have = get_option('smack') and get_option('smack-run-label') != ''
 conf.set10('HAVE_SMACK_RUN_LABEL', have)
 if have
@@ -1313,22 +1291,7 @@ libfido2_cflags = declare_dependency(
 )
 conf.set10('HAVE_LIBFIDO2', libfido2.found())
 
-tss2_esys = dependency('tss2-esys', required : get_option('tpm2'))
-tss2_mu = dependency('tss2-mu', required : get_option('tpm2'))
-tss2_rc = dependency('tss2-rc', required : get_option('tpm2'))
-tss2_tcti_device = dependency('tss2-tcti-device', required : get_option('tpm2'))
-tpm2_cflags = declare_dependency(
-        dependencies : [
-                tss2_esys.partial_dependency(includes: true, compile_args: true),
-                tss2_mu.partial_dependency(includes: true, compile_args: true),
-                tss2_rc.partial_dependency(includes: true, compile_args: true),
-                tss2_tcti_device.partial_dependency(includes: true, compile_args: true),
-        ],
-        compile_args : '-DSYSTEMD_CFLAGS_MARKER_TPM2',
-)
-conf.set10('HAVE_TPM2', tss2_esys.found() and tss2_mu.found() and tss2_rc.found() and tss2_tcti_device.found())
-conf.set10('HAVE_TSS2_ESYS3', tss2_esys.found() and tss2_esys.version().version_compare('>= 3.0.0'))
-conf.set('TPM2_NVPCR_BASE', get_option('tpm2-nvpcr-base'))
+
 
 libdw = dependency('libdw',
                    version : '>=0.177',
@@ -1588,30 +1551,6 @@ conf.set10('ENABLE_SYSUPDATED', have2)
 
 conf.set10('ENABLE_STORAGETM', get_option('storagetm'))
 
-have = get_option('homed').require(
-        conf.get('HAVE_LIBCRYPT') == 1 and
-        conf.get('HAVE_OPENSSL') == 1 and
-        conf.get('HAVE_LIBFDISK') == 1 and
-        conf.get('HAVE_LIBCRYPTSETUP') == 1,
-        error_message : 'libcrypt, openssl, fdisk, and libcryptsetup required').allowed()
-conf.set10('ENABLE_HOMED', have)
-
-have = have and conf.get('HAVE_PAM') == 1
-conf.set10('ENABLE_PAM_HOME', have)
-
-feature = get_option('remote')
-if feature.enabled()
-        if conf.get('HAVE_MICROHTTPD') != 1
-                error('remote support was requested, but microhttpd is not available')
-        endif
-        if conf.get('HAVE_LIBCURL') != 1
-                error('remote support was requested, but libcurl is not available')
-        endif
-endif
-# A more minimal version of systemd-journal-remote can always be built, even if neither
-# libcurl nor microhttpd are available.
-conf.set10('ENABLE_REMOTE', feature.allowed())
-
 feature = get_option('vmspawn').disable_auto_if(conf.get('BUILD_MODE_DEVELOPER') == 0)
 conf.set10('ENABLE_VMSPAWN', feature.allowed())
 
@@ -1632,7 +1571,6 @@ foreach tuple : [
                 ['firstboot'],
                 ['gshadow',         get_option('libc') != 'musl', 'musl does not support it'],
                 ['hibernate'],
-                ['hostnamed'],
                 ['hwdb'],
                 ['idn',             conf.get('HAVE_NI_IDN') == 1, 'NI_IDN is not defined'],
                 ['ima'],
@@ -1640,11 +1578,7 @@ foreach tuple : [
                 ['initrd'],
                 ['kernel-install'],
                 ['ldconfig'],
-                ['localed'],
-                ['logind'],
-                ['machined'],
                 ['mountfsd'],
-                ['networkd'],
                 ['nsresourced'],
                 ['nss-myhostname',  get_option('libc') != 'musl', 'musl does not support it'],
                 ['nss-systemd',     get_option('libc') != 'musl', 'musl does not support it'],
@@ -1653,16 +1587,13 @@ foreach tuple : [
                 ['pstore'],
                 ['quotacheck'],
                 ['randomseed'],
-                ['resolve'],
                 ['rfkill'],
                 ['smack'],
                 ['sysext'],
                 ['sysinstall'],
                 ['sysusers'],
-                ['timedated'],
-                ['timesyncd'],
                 ['tmpfiles'],
-                ['tpm'],
+
                 ['utmp',            get_option('libc') != 'musl', 'musl does not support it'],
                 ['userdb'],
                 ['vconsole'],
@@ -1681,30 +1612,8 @@ endforeach
 
 enable_sysusers = conf.get('ENABLE_SYSUSERS') == 1
 
-foreach tuple : [['nss-mymachines', 'machined'],
-                 ['nss-resolve',    'resolve']]
-        want = get_option(tuple[0])
-        if want.enabled()
-                if get_option('libc') == 'musl'
-                        error('@0@ is requested but musl does not support it'.format(tuple[0]))
-                endif
-                if not get_option(tuple[1])
-                        error('@0@ is requested but @1@ is disabled'.format(tuple[0], tuple[1]))
-                endif
-                have = true
-        elif want.allowed()
-                have = get_option(tuple[1]) and get_option('libc') != 'musl'
-        else
-                have = false
-        endif
-        name = 'ENABLE_' + tuple[0].underscorify().to_upper()
-        conf.set10(name, have)
-endforeach
-
 enable_nss = false
 foreach term : ['ENABLE_NSS_MYHOSTNAME',
-                'ENABLE_NSS_MYMACHINES',
-                'ENABLE_NSS_RESOLVE',
                 'ENABLE_NSS_SYSTEMD']
         if conf.get(term) == 1
                 enable_nss = true
@@ -1712,7 +1621,23 @@ foreach term : ['ENABLE_NSS_MYHOSTNAME',
 endforeach
 conf.set10('ENABLE_NSS', enable_nss)
 
-conf.set10('ENABLE_TIMEDATECTL', get_option('timedated') or get_option('timesyncd'))
+# Set removed components to 0 so #if checks in remaining code compile cleanly
+conf.set10('ENABLE_LOGIND', 0)
+conf.set10('ENABLE_HOMED', 0)
+conf.set10('ENABLE_NSS_RESOLVE', 0)
+conf.set10('ENABLE_NSS_MYMACHINES', 0)
+conf.set10('ENABLE_NETWORKD', 0)
+conf.set10('ENABLE_RESOLVE', 0)
+conf.set10('ENABLE_MACHINED', 0)
+conf.set10('ENABLE_TIMEDATED', 0)
+conf.set10('ENABLE_TIMESYNCD', 0)
+conf.set10('ENABLE_HOSTNAMED', 0)
+conf.set10('ENABLE_LOCALED', 0)
+conf.set10('ENABLE_BOOTLOADER', 0)
+conf.set10('ENABLE_UKIFY', 0)
+conf.set10('ENABLE_REMOTE', 0)
+conf.set10('HAVE_TPM2', 0)
+conf.set10('HAVE_SELINUX', 0)
 
 conf.set10('ENABLE_SSH_PROXY_CONFIG', sshconfdir != 'no')
 conf.set10('ENABLE_SSH_USERDB_CONFIG', conf.get('ENABLE_USERDB') == 1 and sshdconfdir != 'no')
@@ -1741,28 +1666,8 @@ efi_arch = {
 }.get(host_machine.cpu_family(), '')
 
 pyelftools = pymod.find_installation('python3',
-                                     required : get_option('bootloader'),
+                                     required : false,
                                      modules : ['elftools'])
-
-have = get_option('bootloader').require(
-        pyelftools.found() and get_option('efi') and efi_arch != '',
-        error_message : 'unsupported EFI arch or EFI support is disabled').allowed()
-conf.set10('ENABLE_BOOTLOADER', have)
-conf.set_quoted('EFI_MACHINE_TYPE_NAME', have ? efi_arch : '')
-
-efi_arch_alt = ''
-efi_cpu_family_alt = ''
-if have and efi_arch == 'x64' and cc.links('''
-                #include <limits.h>
-                int main(int argc, char *argv[]) {
-                        return __builtin_popcount(argc - CHAR_MAX);
-                }''', args : ['-m32', '-march=i686'], name : '32bit build possible')
-        efi_arch_alt = 'ia32'
-        efi_cpu_family_alt = 'x86'
-endif
-
-want_ukify = get_option('ukify').allowed()
-conf.set10('ENABLE_UKIFY', want_ukify)
 
 #####################################################################
 
@@ -1825,9 +1730,6 @@ public_programs = []
 
 # D-Bus introspection XML export
 dbus_programs = []
-
-# A list of boot stubs. Required for testing of ukify.
-boot_stubs = []
 
 # This is similar to system_includes below, but for passing custom_target().
 system_include_args = [
@@ -1899,7 +1801,6 @@ subdir('src/fundamental')
 subdir('src/basic')
 subdir('src/libsystemd')
 subdir('src/shared')
-subdir('src/libudev')
 
 libsystemd = shared_library(
         'systemd',
@@ -1947,53 +1848,6 @@ if static_libsystemd != 'false'
         alias_target('libsystemd', libsystemd, install_libsystemd_static)
 else
         alias_target('libsystemd', libsystemd)
-endif
-
-libudev = shared_library(
-        'udev',
-        version : libudev_version,
-        include_directories : includes,
-        implicit_include_directories : false,
-        link_args : ['-shared',
-                     '-Wl,--version-script=' + libudev_sym_path],
-        link_with : [libsystemd_static],
-        link_whole : libudev_basic,
-        dependencies : [userspace],
-        link_depends : libudev_sym,
-        install : true,
-        install_tag: 'libudev',
-        install_dir : libdir)
-
-if static_libudev != 'false'
-        install_libudev_static = static_library(
-                'udev',
-                libc_wrapper_sources,
-                basic_sources,
-                fundamental_sources,
-                shared_sources,
-                libsystemd_sources,
-                libudev_sources,
-                include_directories : includes,
-                implicit_include_directories : false,
-                install : true,
-                install_tag: 'libudev',
-                install_dir : libdir,
-                link_depends : libudev_sym,
-                dependencies : [
-                        libbzip2_cflags,
-                        liblz4_cflags,
-                        libshared_deps,
-                        libxz_cflags,
-                        libz_cflags,
-                        libzstd_cflags,
-                        userspace,
-                ],
-                c_args : static_libudev_pic ? [] : ['-fno-PIC'],
-                pic : static_libudev_pic)
-
-        alias_target('libudev', libudev, install_libudev_static)
-else
-        alias_target('libudev', libudev)
 endif
 
 #####################################################################
@@ -2110,12 +1964,6 @@ module_additional_kwargs = {
 # 'src/core' embeds a built-in copy of some unit files, so the unit file list
 # from 'units' must be defined first.
 subdir('units')
-# systemd-analyze requires 'libcore'
-subdir('src/core')
-# systemd-networkd requires 'libsystemd_network'
-subdir('src/libsystemd-network')
-# hwdb requires 'udev_link_with' and 'udev_rpath'
-subdir('src/udev')
 
 subdir('src/ac-power')
 subdir('src/analyze')
@@ -2123,9 +1971,6 @@ subdir('src/ask-password')
 subdir('src/backlight')
 subdir('src/battery-check')
 subdir('src/binfmt')
-subdir('src/bless-boot')
-subdir('src/boot')
-subdir('src/bootctl')
 subdir('src/busctl')
 subdir('src/cgls')
 subdir('src/cgtop')
@@ -2147,39 +1992,26 @@ subdir('src/getty-generator')
 subdir('src/gpt-auto-generator')
 subdir('src/growfs')
 subdir('src/hibernate-resume')
-subdir('src/home')
-subdir('src/hostname')
 subdir('src/hwdb')
 subdir('src/id128')
 subdir('src/import')
 subdir('src/imds') # Note, we are not alphabetically here, since we want to use a variable from src/import/ here
 subdir('src/integritysetup')
-subdir('src/journal')
-subdir('src/journal-remote')
 subdir('src/kernel-install')
 subdir('src/keyutil')
-subdir('src/locale')
-subdir('src/login')
-subdir('src/machine')
-subdir('src/machine-id-setup')
-subdir('src/measure')
 subdir('src/modules-load')
 subdir('src/mount')
 subdir('src/mountfsd')
 subdir('src/mstack')
 subdir('src/mute-console')
-subdir('src/network')
 subdir('src/notify')
 subdir('src/nspawn')
 subdir('src/nsresourced')
 subdir('src/nss-myhostname')
-subdir('src/nss-mymachines')
-subdir('src/nss-resolve')
 subdir('src/nss-systemd')
 subdir('src/oom')
 subdir('src/path')
-subdir('src/pcrextend')
-subdir('src/pcrlock')
+
 subdir('src/portable')
 subdir('src/pstore')
 subdir('src/ptyfwd')
@@ -2189,7 +2021,6 @@ subdir('src/remount-fs')
 subdir('src/repart')
 subdir('src/report')
 subdir('src/reply-password')
-subdir('src/resolve')
 subdir('src/rfkill')
 subdir('src/rpm')
 subdir('src/run')
@@ -2211,10 +2042,8 @@ subdir('src/system-update-generator')
 subdir('src/systemctl')
 subdir('src/sysupdate')
 subdir('src/sysusers')
-subdir('src/timedate')
-subdir('src/timesync')
 subdir('src/tmpfiles')
-subdir('src/tpm2-setup')
+
 subdir('src/tty-ask-password-agent')
 subdir('src/update-done')
 subdir('src/update-utmp')
@@ -2233,12 +2062,11 @@ subdir('src/systemd')
 
 subdir('src/test')
 subdir('src/fuzz')
-subdir('src/ukify/test')  # needs to be last for test_env variable
 subdir('test/fuzz')
 
 subdir('mime')
 
-alias_target('devel', libsystemd_pc, libudev_pc, systemd_pc, udev_pc)
+alias_target('devel', libsystemd_pc)
 
 #####################################################################
 
@@ -2518,33 +2346,6 @@ endif
 
 #####################################################################
 
-ukify_depends = []
-
-foreach executable : ['systemd-measure', 'systemd-sbsign', 'systemd-keyutil']
-        if executable in executables_by_name
-                ukify_depends += [executables_by_name[executable]]
-        endif
-endforeach
-
-ukify = custom_target(
-        input : 'src/ukify/ukify.py',
-        output : 'ukify',
-        command : [jinja2_cmdline, '@INPUT@', '@OUTPUT@'],
-        install : want_ukify,
-        install_mode : 'rwxr-xr-x',
-        depends : ukify_depends,
-        install_dir : bindir)
-if want_ukify
-        public_programs += ukify
-
-        # symlink for backwards compatibility after rename
-        install_symlink('ukify',
-                        pointing_to : libexecdir_to_bin / 'ukify',
-                        install_dir : libexecdir)
-endif
-
-#####################################################################
-
 mkosi = find_program('mkosi', required : false)
 mkosi_depends = public_programs
 
@@ -2593,7 +2394,6 @@ subdir('hostname-wordlist')
 subdir('hwdb.d')
 subdir('man')
 subdir('modprobe.d')
-subdir('network')
 subdir('presets')
 subdir('profile.d')
 subdir('shell-completion/bash')
@@ -2742,7 +2542,7 @@ if meson.version().version_compare('>=1.4.0')
                 inputs = [source]
 
                 header = source.full_path().replace('.c', '.h')
-                if fs.exists(header) and header != source.full_path() and header != libudev_h_path
+                if fs.exists(header) and header != source.full_path()
                         inputs += header
                 endif
 
@@ -2797,15 +2597,14 @@ test(
         'libshared-unused-symbols',
         find_unused_library_symbols_py,
         suite : 'unused-symbols',
-        args : [libshared, libcore] + nss_targets + pam_targets + symbol_analysis_exes,
+        args : [libshared] + nss_targets + pam_targets + symbol_analysis_exes,
 )
 
 run_target(
         'check-api-docs',
-        depends : [man, libsystemd, libudev],
+        depends : [man, libsystemd],
         command : [check_api_docs_sh,
-                   libsystemd.full_path(),
-                   libudev.full_path()])
+                   libsystemd.full_path()])
 
 alias_target('man', man)
 alias_target('html', html)
@@ -2830,12 +2629,6 @@ custom_target(
                    meson.project_build_root()])
 
 #####################################################################
-
-udev_targets = []
-foreach bin : udev_binaries
-        udev_targets += executables_by_name.get(bin, [])
-endforeach
-alias_target('udev', buildable_rules, udev_targets, udev_units)
 
 if conf.get('ENABLE_HWDB') == 1
         alias_target('hwdb', auto_suspend_rules, executables_by_name.get('systemd-hwdb'), hwdb_units)
@@ -2901,11 +2694,10 @@ summary({
         'default locale'                            : default_locale,
         'default nspawn locale'                     : nspawn_locale,
         'default status unit format'                : status_unit_format_default,
-        'default journal storage mode'              : conf.get('JOURNAL_STORAGE_DEFAULT'),
         'default user $PATH'                        : default_user_path != '' ? default_user_path : '(same as system services)',
         'systemd service watchdog'                  : service_watchdog == '' ? 'disabled' : service_watchdog,
         'time epoch'                                : f'@time_epoch@ (@alt_time_epoch@)',
-        'TPM2 nvpcr base'                           : run_command(sh, '-c', 'printf 0x%x @0@'.format(get_option('tpm2-nvpcr-base')), check : true).stdout(),
+
         'IMDS networking'                           : get_option('imds-network'),
 })
 
@@ -2921,12 +2713,11 @@ foreach tuple : [
         # dependencies
         ['ACL'],
         ['AUDIT'],
-        ['AppArmor'],
         ['IMA'],
         ['IPE'],
         ['PAM'],
         ['SECCOMP'],
-        ['SELinux'],
+
         ['SMACK'],
         ['blkid'],
         ['elfutils'],
@@ -2948,7 +2739,7 @@ foreach tuple : [
         ['pcre2'],
         ['pwquality'],
         ['qrencode'],
-        ['tpm2'],
+
         ['xkbcommon'],
 
         # compression libs
@@ -3037,12 +2828,7 @@ foreach tuple : [
         ['slow tests',             want_slow_tests],
         ['fuzz tests',             want_fuzz_tests],
         ['install tests',          install_tests],
-        ['link-udev-shared',       get_option('link-udev-shared')],
         ['link-systemctl-shared',  get_option('link-systemctl-shared')],
-        ['link-networkd-shared',   get_option('link-networkd-shared')],
-        ['link-timesyncd-shared',  get_option('link-timesyncd-shared')],
-        ['link-journalctl-shared', get_option('link-journalctl-shared')],
-        ['link-boot-shared',       get_option('link-boot-shared')],
         ['link-portabled-shared',  get_option('link-portabled-shared')],
         ['first-boot-full-preset'],
         ['fexecve'],
@@ -3068,12 +2854,6 @@ if static_libsystemd == 'false'
         missing += 'static-libsystemd'
 else
         found += f'static-libsystemd(@static_libsystemd@)'
-endif
-
-if static_libudev == 'false'
-        missing += 'static-libudev'
-else
-        found += f'static-libudev(@static_libudev@)'
 endif
 
 summary({

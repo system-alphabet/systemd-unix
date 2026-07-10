@@ -110,7 +110,6 @@
 #include "rm-rf.h"
 #include "runtime-scope.h"
 #include "seccomp-util.h"
-#include "selinux-util.h"
 #include "set.h"
 #include "shift-uid.h"
 #include "signal-util.h"
@@ -157,8 +156,6 @@ static size_t arg_n_supplementary_gids = 0;
 static sd_id128_t arg_uuid = {};
 static char *arg_machine = NULL;     /* The name used by the host to refer to this */
 static char *arg_hostname = NULL;    /* The name the payload sees by default */
-static const char *arg_selinux_context = NULL;
-static const char *arg_selinux_apifs_context = NULL;
 static char *arg_slice = NULL;
 static bool arg_private_network = false;
 static bool arg_read_only = false;
@@ -1145,16 +1142,6 @@ static int parse_argv(int argc, char *argv[]) {
                         arg_settings_mask |= SETTING_RESTRICT_ADDRESS_FAMILIES;
                         break;
 
-                OPTION('Z', "selinux-context", "SECLABEL",
-                       "Set the SELinux security context to be used by processes in the container"):
-                        arg_selinux_context = opts.arg;
-                        break;
-
-                OPTION('L', "selinux-apifs-context", "SECLABEL",
-                       "Set the SELinux security context to be used by API/tmpfs file systems in the container"):
-                        arg_selinux_apifs_context = opts.arg;
-                        break;
-
                 OPTION_GROUP("Resources"): {}
 
                 OPTION_LONG("rlimit", "NAME=LIMIT", "Set a resource limit for the payload"): {
@@ -1511,8 +1498,6 @@ static int verify_arguments(void) {
 
         SET_FLAG(arg_mount_settings, MOUNT_UNMANAGED, arg_userns_mode != USER_NAMESPACE_MANAGED);
 
-        /* We can mount selinuxfs only if we are privileged and can do so before userns. In managed mode we
-         * have to enter the userns earlier, hence cannot do that. */
         /* SET_FLAG(arg_mount_settings, MOUNT_PRIVILEGED, arg_runtime_scope == RUNTIME_SCOPE_SYSTEM); */
         SET_FLAG(arg_mount_settings, MOUNT_PRIVILEGED, arg_userns_mode != USER_NAMESPACE_MANAGED);
 
@@ -2249,17 +2234,9 @@ static int setup_pts(const char *dest, uid_t chown_uid) {
         _cleanup_free_ char *options = NULL;
         int r;
 
-#if HAVE_SELINUX
-        if (arg_selinux_apifs_context)
-                (void) asprintf(&options,
-                                "newinstance,ptmxmode=0666,mode=" STRINGIFY(TTY_MODE) ",gid=" GID_FMT ",context=\"%s\"",
-                                chown_uid + TTY_GID,
-                                arg_selinux_apifs_context);
-        else
-#endif
-                (void) asprintf(&options,
-                                "newinstance,ptmxmode=0666,mode=" STRINGIFY(TTY_MODE) ",gid=" GID_FMT,
-                                chown_uid + TTY_GID);
+        (void) asprintf(&options,
+                        "newinstance,ptmxmode=0666,mode=" STRINGIFY(TTY_MODE) ",gid=" GID_FMT,
+                        chown_uid + TTY_GID);
 
         if (!options)
                 return log_oom();
@@ -2669,7 +2646,6 @@ static int setup_journal(const char *directory, uid_t uid_shift, uid_t uid_range
                         /* n= */ 1,
                         uid_shift,
                         uid_range,
-                        arg_selinux_apifs_context,
                         MOUNT_NON_ROOT_ONLY);
 }
 
@@ -3406,8 +3382,7 @@ static int inner_child(
 
         r = mount_all(/* dest= */ NULL,
                       arg_mount_settings | MOUNT_IN_USERNS,
-                      arg_uid_shift,
-                      arg_selinux_apifs_context);
+                      arg_uid_shift);
         if (r < 0)
                 return r;
 
@@ -3466,7 +3441,6 @@ static int inner_child(
                         arg_n_custom_mounts,
                         0,
                         0,
-                        arg_selinux_apifs_context,
                         MOUNT_NON_ROOT_ONLY | MOUNT_IN_USERNS);
         if (r < 0)
                 return r;
@@ -3567,12 +3541,6 @@ static int inner_child(
                 log_debug("systemd is built without SECCOMP support. Ignoring --suppress-sync= command line option and SuppressSync= setting.");
 #endif
         }
-
-#if HAVE_SELINUX
-        if (arg_selinux_context && mac_selinux_use())
-                if (sym_setexeccon_raw(arg_selinux_context) < 0)
-                        return log_error_errno(errno, "setexeccon(\"%s\") failed: %m", arg_selinux_context);
-#endif
 
         /* Make sure we keep the caps across the uid/gid dropping, so that we can retain some selected caps
          * if we need to later on. */
@@ -4118,8 +4086,7 @@ static int outer_child(
         r = setup_volatile_mode(
                         directory,
                         arg_volatile_mode,
-                        chown_uid,
-                        arg_selinux_apifs_context);
+                        chown_uid);
         if (r < 0)
                 return r;
 
@@ -4167,7 +4134,6 @@ static int outer_child(
                         arg_n_custom_mounts,
                         chown_uid,
                         chown_range,
-                        arg_selinux_apifs_context,
                         MOUNT_ROOT_ONLY);
         if (r < 0)
                 return r;
@@ -4252,8 +4218,7 @@ static int outer_child(
         r = setup_volatile_mode_after_remount_idmap(
                         directory,
                         arg_volatile_mode,
-                        chown_uid,
-                        arg_selinux_apifs_context);
+                        chown_uid);
         if (r < 0)
                 return r;
 
@@ -4289,8 +4254,7 @@ static int outer_child(
 
         r = mount_all(directory,
                       arg_mount_settings,
-                      chown_uid,
-                      arg_selinux_apifs_context);
+                      chown_uid);
         if (r < 0)
                 return r;
 
@@ -4348,7 +4312,6 @@ static int outer_child(
                         arg_n_custom_mounts,
                         chown_uid,
                         chown_range,
-                        arg_selinux_apifs_context,
                         MOUNT_NON_ROOT_ONLY);
         if (r < 0)
                 return r;
@@ -6143,7 +6106,6 @@ static int run(int argc, char *argv[]) {
 
         (void) DLOPEN_LIBMOUNT(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
         (void) DLOPEN_LIBSECCOMP(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
-        (void) DLOPEN_LIBSELINUX(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
 
         r = cg_has_legacy();
         if (r < 0)

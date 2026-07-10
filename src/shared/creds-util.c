@@ -37,8 +37,7 @@
 #include "stat-util.h"
 #include "string-util.h"
 #include "tmpfile-util.h"
-#include "tpm2-pcr.h"
-#include "tpm2-util.h"
+
 #include "user-util.h"
 
 #define PUBLIC_KEY_MAX (UINT32_C(1024) * UINT32_C(1024))
@@ -893,7 +892,7 @@ int encrypt_credential_and_warn(
         if (tpm2_hash_pcr_mask == UINT32_MAX)
                 tpm2_hash_pcr_mask = 0;
         if (tpm2_pubkey_pcr_mask == UINT32_MAX)
-                tpm2_pubkey_pcr_mask = UINT32_C(1) << TPM2_PCR_KERNEL_BOOT;
+                tpm2_pubkey_pcr_mask = 0;
 
 #if HAVE_TPM2
         bool try_tpm2;
@@ -1204,7 +1203,6 @@ int decrypt_credential_and_warn(
                 struct iovec *ret) {
 
         _cleanup_(iovec_done_erase) struct iovec host_key = {}, plaintext = {}, tpm2_key = {};
-        _cleanup_(sd_json_variant_unrefp) sd_json_variant *signature_json = NULL;
         _cleanup_(EVP_CIPHER_CTX_freep) EVP_CIPHER_CTX *context = NULL;
         struct encrypted_credential_header *h;
         struct metadata_credential_header *m;
@@ -1243,13 +1241,8 @@ int decrypt_credential_and_warn(
         if (!CRED_KEY_IS_VALID(h->id))
                 return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Unknown encryption format, or corrupted data.");
 
-        if (CRED_KEY_REQUIRES_TPM2_PK(h->id)) {
-                r = tpm2_load_pcr_signature(tpm2_signature_path, &signature_json);
-                if (r == -ENOENT)
-                        return log_error_errno(SYNTHETIC_ERRNO(EHOSTDOWN), "Couldn't find PCR signature file: %m");
-                if (r < 0)
-                        return log_error_errno(r, "Failed to load PCR signature: %m");
-        }
+        if (CRED_KEY_REQUIRES_TPM2_PK(h->id))
+                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Credential requires TPM2 public key PCR policy, but TPM2 support not available.");
 
         if (sd_id128_equal(h->id, CRED_AES256_GCM_BY_NULL)) {
                 if (FLAGS_SET(flags, CREDENTIAL_REFUSE_NULL))
@@ -1266,14 +1259,7 @@ int decrypt_credential_and_warn(
                          * mode. Otherwise an attacker could hand us credentials like this and we'd use them thinking
                          * they are trusted, even though they are not. */
 
-                        if (efi_has_tpm2()) {
-                                if (is_efi_secure_boot())
-                                        return log_error_errno(SYNTHETIC_ERRNO(EHWPOISON),
-                                                               "Credential uses null key intended for fallback use when TPM2 is absent — but TPM2 is present, and SecureBoot is enabled, refusing.");
-
-                                log_warning("Credential uses null key intended for use when TPM2 is absent, but TPM2 is present! Accepting anyway, since SecureBoot is disabled.");
-                        } else
-                                log_debug("Credential uses null key intended for use when TPM2 is absent, and TPM2 indeed is absent. Accepting.");
+                        log_debug("Credential uses null key intended for use when TPM2 is absent, and TPM2 indeed is absent. Accepting.");
                 }
         }
 

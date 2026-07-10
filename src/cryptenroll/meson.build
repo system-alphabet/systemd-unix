@@ -12,7 +12,6 @@ systemd_cryptenroll_sources = files(
         'cryptenroll-password.c',
         'cryptenroll-pkcs11.c',
         'cryptenroll-recovery.c',
-        'cryptenroll-tpm2.c',
         'cryptenroll-varlink.c',
         'cryptenroll-wipe.c',
 )
@@ -27,7 +26,6 @@ executables += [
                         libfido2_cflags,
                         libopenssl_cflags,
                         libp11kit_cflags,
-                        tpm2_cflags,
                 ],
         },
 ]

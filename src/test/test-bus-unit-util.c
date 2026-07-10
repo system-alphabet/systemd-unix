@@ -469,8 +469,8 @@ TEST(execute_properties) {
                         "StandardInputText=Multi\nLine\nText",
                         "StandardInputData=SGVsbG8gV29ybGQ=",
 
-                        "AppArmorProfile=myprofile",
-                        "AppArmorProfile=unconfined",
+                        "-EINVAL AppArmorProfile=myprofile",
+                        "-EINVAL AppArmorProfile=unconfined",
                         "SmackProcessLabel=mylabel",
                         "SmackProcessLabel=_",
 

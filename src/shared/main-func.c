@@ -9,7 +9,6 @@
 #include "main-func.h"
 #include "pager.h"
 #include "polkit-agent.h"
-#include "selinux-util.h"
 #include "string-util.h"
 
 void main_prepare(int argc, char *argv[]) {
@@ -24,7 +23,6 @@ void main_finalize(int r, int exit_status) {
         ask_password_agent_close();
         polkit_agent_close();
         pager_close();
-        mac_selinux_finish();
 }
 
 int exit_failure_if_negative(int result) {

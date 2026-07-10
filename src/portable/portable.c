@@ -46,7 +46,6 @@
 #include "portable-util.h"
 #include "process-util.h"
 #include "rm-rf.h"
-#include "selinux-util.h"
 #include "set.h"
 #include "socket-util.h"
 #include "sort-util.h"
@@ -95,7 +94,7 @@ static bool unit_match(const char *unit, char **matches) {
         return false;
 }
 
-static PortableMetadata *portable_metadata_new(const char *name, const char *path, const char *selinux_label, int fd) {
+static PortableMetadata *portable_metadata_new(const char *name, const char *path, int fd) {
         PortableMetadata *m;
 
         m = malloc0(offsetof(PortableMetadata, name) + strlen(name) + 1);
@@ -107,15 +106,6 @@ static PortableMetadata *portable_metadata_new(const char *name, const char *pat
                 m->image_path = strdup(path);
                 if (!m->image_path)
                         return mfree(m);
-        }
-
-        /* The metadata file might have SELinux labels, we need to carry them and reapply them */
-        if (!isempty(selinux_label)) {
-                m->selinux_label = strdup(selinux_label);
-                if (!m->selinux_label) {
-                        free(m->image_path);
-                        return mfree(m);
-                }
         }
 
         strcpy(m->name, name);
@@ -131,8 +121,6 @@ PortableMetadata *portable_metadata_unref(PortableMetadata *i) {
         safe_close(i->fd);
         free(i->source);
         free(i->image_path);
-        free(i->selinux_label);
-
         return mfree(i);
 }
 
@@ -233,13 +221,7 @@ static int receive_portable_metadata(
                         return log_debug_errno(SYNTHETIC_ERRNO(EINVAL),
                                                 "Invalid item sent from child.");
 
-                /* Given recvmsg cannot be used with multiple io vectors if you don't know the size in
-                 * advance, use a marker to separate the name and the optional SELinux context. */
-                char *selinux_label = memchr(iov_buffer, 0, n);
-                assert(selinux_label);
-                selinux_label++;
-
-                add = portable_metadata_new(iov_buffer, path, selinux_label, fd);
+                add = portable_metadata_new(iov_buffer, path, fd);
                 if (!add)
                         return -ENOMEM;
                 fd = -EBADF;
@@ -335,7 +317,7 @@ static int extract_now(
                 }
 
                 if (ret_os_release) {
-                        os_release = portable_metadata_new(os_release_id, NULL, NULL, os_release_fd);
+                        os_release = portable_metadata_new(os_release_id, NULL, os_release_fd);
                         if (!os_release)
                                 return -ENOMEM;
 
@@ -375,7 +357,6 @@ static int extract_now(
 
                 FOREACH_DIRENT(de, d, return log_debug_errno(errno, "Failed to read directory: %m")) {
                         _cleanup_(portable_metadata_unrefp) PortableMetadata *m = NULL;
-                        _cleanup_freecon_ char *con = NULL;
                         _cleanup_close_ int fd = -EBADF;
                         struct stat st;
 
@@ -409,21 +390,11 @@ static int extract_now(
                                 continue;
                         }
 
-#if HAVE_SELINUX
-                        /* The units will be copied on the host's filesystem, so if they had a SELinux label
-                         * we have to preserve it. Copy it out so that it can be applied later. */
-                        if (mac_selinux_use()) {
-                                r = sym_fgetfilecon_raw(fd, &con);
-                                if (r < 0 && !ERRNO_IS_XATTR_ABSENT(errno))
-                                        log_debug_errno(errno, "Failed to get SELinux file context from '%s', ignoring: %m", de->d_name);
-                        }
-#endif
-
                         if (socket_fd >= 0) {
                                 struct iovec iov[] = {
                                         IOVEC_MAKE_STRING(de->d_name),
                                         IOVEC_MAKE((char *)"\0", sizeof(char)),
-                                        IOVEC_MAKE_STRING(strempty(con)),
+                                        IOVEC_MAKE_STRING(""),
                                 };
 
                                 r = send_one_fd_iov_with_data_fd(socket_fd, iov, ELEMENTSOF(iov), fd);
@@ -431,7 +402,7 @@ static int extract_now(
                                         return log_debug_errno(r, "Failed to send unit metadata to parent: %m");
                         }
 
-                        m = portable_metadata_new(de->d_name, image_path, con, fd);
+                        m = portable_metadata_new(de->d_name, image_path, fd);
                         if (!m)
                                 return -ENOMEM;
                         fd = -EBADF;
@@ -1747,10 +1718,7 @@ static int attach_unit_file(
                 if (flags & PORTABLE_FORCE_ATTACH)
                         link_flags |= LINK_TMPFILE_REPLACE;
 
-                (void) mac_selinux_create_file_prepare_label(path, m->selinux_label);
-
                 fd = open_tmpfile_linkable(path, O_WRONLY|O_CLOEXEC, &tmp);
-                mac_selinux_create_file_clear(); /* Clear immediately in case of errors */
                 if (fd < 0)
                         return log_debug_errno(fd, "Failed to create unit file '%s': %m", path);
 

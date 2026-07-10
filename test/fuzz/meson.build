@@ -4,33 +4,20 @@ generate_directives_py = files('generate-directives.py')
 
 fuzz_regression_tests = {}
 
-directives = [['fuzz-network-parser', 'directives.network', networkd_network_gperf_gperf],
-              ['fuzz-netdev-parser', 'directives.netdev',   networkd_netdev_gperf_gperf],
-              ['fuzz-link-parser', 'directives.link',       udev_link_gperf_gperf],
+directives = [['fuzz-network-parser', 'directives.network'],
+              ['fuzz-netdev-parser', 'directives.netdev'],
+              ['fuzz-link-parser', 'directives.link'],
              ]
 
 foreach tuple : directives
         directive = custom_target(
                 output: tuple[1],
-                command: [generate_directives_py, tuple[2]],
+                command: [generate_directives_py],
                 capture: true)
 
         dict = { 'directives' : [directive] }
         fuzz_regression_tests += { tuple[0] : dict }
 endforeach
-
-unit_directives = []
-foreach section : ['Automount', 'Mount', 'Path', 'Scope', 'Service', 'Slice', 'Socket', 'Swap', 'Timer']
-        unit_type = section.to_lower()
-        sec_rx = section == 'Service' ? '(Service|Unit|Install)' : section
-        name = f'directives.@unit_type@'
-        unit_directives += custom_target(
-                output: name,
-                command: [generate_directives_py, load_fragment_gperf_gperf, sec_rx, unit_type],
-                capture: true)
-endforeach
-dict = { 'directives' : unit_directives }
-fuzz_regression_tests += { 'fuzz-unit-file' : dict }
 
 ############################################################
 

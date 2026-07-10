@@ -410,7 +410,6 @@ int inaccessible_mount_parse(CustomMount **l, size_t *n, const char *s) {
 int tmpfs_patch_options(
                 const char *options,
                 uid_t uid_shift,
-                const char *selinux_apifs_context,
                 char **ret) {
 
         _cleanup_free_ char *buf = NULL;
@@ -426,12 +425,6 @@ int tmpfs_patch_options(
         if (uid_shift != UID_INVALID)
                 if (strextendf_with_separator(&buf, ",", "uid=" UID_FMT ",gid=" UID_FMT, uid_shift, uid_shift) < 0)
                         return -ENOMEM;
-
-#if HAVE_SELINUX
-        if (selinux_apifs_context)
-                if (strextendf_with_separator(&buf, ",", "context=\"%s\"", selinux_apifs_context) < 0)
-                        return -ENOMEM;
-#endif
 
         *ret = TAKE_PTR(buf);
         return !!*ret;
@@ -530,8 +523,7 @@ int mount_sysfs(const char *dest, MountSettingsMask mount_settings) {
 
 int mount_all(const char *dest,
               MountSettingsMask mount_settings,
-              uid_t uid_shift,
-              const char *selinux_apifs_context) {
+              uid_t uid_shift) {
 
 #define PROC_INACCESSIBLE_REG(path)                                     \
         { "/run/host/inaccessible/reg", (path), NULL, NULL, MS_BIND,    \
@@ -616,14 +608,7 @@ int mount_all(const char *dest,
                   MOUNT_FATAL },  /* Turn off propagation (we only want that for the mount propagation tunnel dir) */
                 { NULL,                     "/run/host",                    NULL,    NULL,                             MS_BIND|MS_RDONLY|MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_REMOUNT,
                   MOUNT_FATAL|MOUNT_IN_USERNS },
-#if HAVE_SELINUX
-                { "/sys/fs/selinux",        "/sys/fs/selinux",              NULL,    NULL,                             MS_BIND,
-                  MOUNT_MKDIR|MOUNT_PRIVILEGED },  /* Bind mount first (mkdir/chown the mount point in case /sys/ is mounted as minimal skeleton tmpfs) */
-                { NULL,                     "/sys/fs/selinux",              NULL,    NULL,                             MS_BIND|MS_RDONLY|MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_REMOUNT,
-                  MOUNT_UNMANAGED|MOUNT_PRIVILEGED },  /* Then, make it r/o (don't mkdir/chown the mount point here, the previous entry already did that) */
-                { NULL,                     "/sys/fs/selinux",              NULL,    NULL,                             MS_PRIVATE,
-                  MOUNT_UNMANAGED|MOUNT_PRIVILEGED },  /* Turn off propagation (we only want that for the mount propagation tunnel dir) */
-#endif
+
         };
 
         bool use_userns = FLAGS_SET(mount_settings, MOUNT_USE_USERNS);
@@ -707,7 +692,7 @@ int mount_all(const char *dest,
 
                 o = m->options;
                 if (streq_ptr(m->type, "tmpfs")) {
-                        r = tmpfs_patch_options(o, in_userns ? 0 : uid_shift, selinux_apifs_context, &options);
+                        r = tmpfs_patch_options(o, in_userns ? 0 : uid_shift, &options);
                         if (r < 0)
                                 return log_oom();
                         if (r > 0)
@@ -917,7 +902,7 @@ static int mount_bind(const char *dest, CustomMount *m, uid_t uid_shift, uid_t u
         return 0;
 }
 
-static int mount_tmpfs(const char *dest, CustomMount *m, uid_t uid_shift, const char *selinux_apifs_context) {
+static int mount_tmpfs(const char *dest, CustomMount *m, uid_t uid_shift) {
         const char *options;
         _cleanup_free_ char *buf = NULL, *where = NULL;
         int r;
@@ -934,7 +919,7 @@ static int mount_tmpfs(const char *dest, CustomMount *m, uid_t uid_shift, const 
                         return log_error_errno(r, "Creating mount point for tmpfs %s failed: %m", where);
         }
 
-        r = tmpfs_patch_options(m->options, uid_shift == 0 ? UID_INVALID : uid_shift, selinux_apifs_context, &buf);
+        r = tmpfs_patch_options(m->options, uid_shift == 0 ? UID_INVALID : uid_shift, &buf);
         if (r < 0)
                 return log_oom();
         options = r > 0 ? buf : m->options;
@@ -1054,7 +1039,6 @@ int mount_custom(
                 CustomMount *mounts, size_t n,
                 uid_t uid_shift,
                 uid_t uid_range,
-                const char *selinux_apifs_context,
                 MountSettingsMask mount_settings) {
         int r;
 
@@ -1077,7 +1061,7 @@ int mount_custom(
                         break;
 
                 case CUSTOM_MOUNT_TMPFS:
-                        r = mount_tmpfs(dest, m, uid_shift, selinux_apifs_context);
+                        r = mount_tmpfs(dest, m, uid_shift);
                         break;
 
                 case CUSTOM_MOUNT_OVERLAY:
@@ -1126,7 +1110,7 @@ static int setup_volatile_state(const char *directory) {
         return 0;
 }
 
-static int setup_volatile_state_after_remount_idmap(const char *directory, uid_t uid_shift, const char *selinux_apifs_context) {
+static int setup_volatile_state_after_remount_idmap(const char *directory, uid_t uid_shift) {
         _cleanup_free_ char *buf = NULL;
         int r;
 
@@ -1143,7 +1127,7 @@ static int setup_volatile_state_after_remount_idmap(const char *directory, uid_t
                 return log_error_errno(errno, "Failed to create %s: %m", directory);
 
         const char *options = "mode=0755" TMPFS_LIMITS_VOLATILE_STATE;
-        r = tmpfs_patch_options(options, uid_shift == 0 ? UID_INVALID : uid_shift, selinux_apifs_context, &buf);
+        r = tmpfs_patch_options(options, uid_shift == 0 ? UID_INVALID : uid_shift, &buf);
         if (r < 0)
                 return log_oom();
         if (r > 0)
@@ -1152,7 +1136,7 @@ static int setup_volatile_state_after_remount_idmap(const char *directory, uid_t
         return mount_nofollow_verbose(LOG_ERR, "tmpfs", p, "tmpfs", MS_STRICTATIME, options);
 }
 
-static int setup_volatile_yes(const char *directory, uid_t uid_shift, const char *selinux_apifs_context) {
+static int setup_volatile_yes(const char *directory, uid_t uid_shift) {
         bool tmpfs_mounted = false, bind_mounted = false;
         _cleanup_(rmdir_and_freep) char *template = NULL;
         _cleanup_free_ char *buf = NULL, *bindir = NULL, *f = NULL, *t = NULL;
@@ -1187,7 +1171,7 @@ static int setup_volatile_yes(const char *directory, uid_t uid_shift, const char
                 return log_error_errno(r, "Failed to create temporary directory: %m");
 
         const char *options = "mode=0755" TMPFS_LIMITS_ROOTFS;
-        r = tmpfs_patch_options(options, uid_shift == 0 ? UID_INVALID : uid_shift, selinux_apifs_context, &buf);
+        r = tmpfs_patch_options(options, uid_shift == 0 ? UID_INVALID : uid_shift, &buf);
         if (r < 0)
                 goto fail;
         if (r > 0)
@@ -1247,7 +1231,7 @@ fail:
         return r;
 }
 
-static int setup_volatile_overlay(const char *directory, uid_t uid_shift, const char *selinux_apifs_context) {
+static int setup_volatile_overlay(const char *directory, uid_t uid_shift) {
         _cleanup_free_ char *buf = NULL, *escaped_directory = NULL, *escaped_upper = NULL, *escaped_work = NULL;
         _cleanup_(rmdir_and_freep) char *template = NULL;
         const char *upper, *work, *options;
@@ -1263,7 +1247,7 @@ static int setup_volatile_overlay(const char *directory, uid_t uid_shift, const 
                 return log_error_errno(r, "Failed to create temporary directory: %m");
 
         options = "mode=0755" TMPFS_LIMITS_ROOTFS;
-        r = tmpfs_patch_options(options, uid_shift == 0 ? UID_INVALID : uid_shift, selinux_apifs_context, &buf);
+        r = tmpfs_patch_options(options, uid_shift == 0 ? UID_INVALID : uid_shift, &buf);
         if (r < 0)
                 goto finish;
         if (r > 0)
@@ -1311,19 +1295,18 @@ finish:
 int setup_volatile_mode(
                 const char *directory,
                 VolatileMode mode,
-                uid_t uid_shift,
-                const char *selinux_apifs_context) {
+                uid_t uid_shift) {
 
         switch (mode) {
 
         case VOLATILE_YES:
-                return setup_volatile_yes(directory, uid_shift, selinux_apifs_context);
+                return setup_volatile_yes(directory, uid_shift);
 
         case VOLATILE_STATE:
                 return setup_volatile_state(directory);
 
         case VOLATILE_OVERLAY:
-                return setup_volatile_overlay(directory, uid_shift, selinux_apifs_context);
+                return setup_volatile_overlay(directory, uid_shift);
 
         default:
                 return 0;
@@ -1333,13 +1316,12 @@ int setup_volatile_mode(
 int setup_volatile_mode_after_remount_idmap(
                 const char *directory,
                 VolatileMode mode,
-                uid_t uid_shift,
-                const char *selinux_apifs_context) {
+                uid_t uid_shift) {
 
         switch (mode) {
 
         case VOLATILE_STATE:
-                return setup_volatile_state_after_remount_idmap(directory, uid_shift, selinux_apifs_context);
+                return setup_volatile_state_after_remount_idmap(directory, uid_shift);
 
         default:
                 return 0;

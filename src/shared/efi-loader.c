@@ -13,7 +13,7 @@
 #include "string-util.h"
 #include "strv.h"
 #include "time-util.h"
-#include "tpm2-pcr.h"
+
 #include "utf8.h"
 
 #if ENABLE_EFI
@@ -266,48 +266,12 @@ int efi_stub_get_features(uint64_t *ret) {
 
 int efi_measured_uki(int log_level) {
 #if ENABLE_EFI
-        _cleanup_free_ char *pcr_string = NULL;
         static int cached = -1;
-        unsigned pcr_nr;
-        int r;
 
         if (cached >= 0)
                 return cached;
 
-        /* Checks if we are booted on a kernel with sd-stub which measured the kernel into PCR 11 on a TPM2
-         * chip. Or in other words, if we are running on a TPM enabled UKI. (TPM 1.2 situations are ignored.)
-         *
-         * Returns == 0 and > 0 depending on the result of the test. Returns -EREMOTE if we detected a stub
-         * being used, but it measured things into a different PCR than we are configured for in
-         * userspace. (i.e. we expect PCR 11 being used for this by both sd-stub and us) */
-
-        r = secure_getenv_bool("SYSTEMD_FORCE_MEASURE"); /* Give user a chance to override the variable test,
-                                                          * for debugging purposes */
-        if (r >= 0)
-                return (cached = r);
-        if (r != -ENXIO)
-                log_debug_errno(r, "Failed to parse $SYSTEMD_FORCE_MEASURE, ignoring: %m");
-
-        if (!efi_has_tpm2())
-                return (cached = 0);
-
-        r = efi_get_variable_string(EFI_LOADER_VARIABLE_STR("StubPcrKernelImage"), &pcr_string);
-        if (r == -ENOENT)
-                return (cached = 0);
-        if (r < 0)
-                return log_full_errno(log_level, r,
-                                      "Failed to get StubPcrKernelImage EFI variable: %m");
-
-        r = safe_atou(pcr_string, &pcr_nr);
-        if (r < 0)
-                return log_full_errno(log_level, r,
-                                      "Failed to parse StubPcrKernelImage EFI variable: %s", pcr_string);
-        if (pcr_nr != TPM2_PCR_KERNEL_BOOT)
-                return log_full_errno(log_level, SYNTHETIC_ERRNO(EREMOTE),
-                                      "Kernel stub measured kernel image into PCR %u, which is different than expected %i.",
-                                      pcr_nr, TPM2_PCR_KERNEL_BOOT);
-
-        return (cached = 1);
+        return (cached = 0);
 #else
         return log_full_errno(log_level, SYNTHETIC_ERRNO(EOPNOTSUPP), "Compiled without support for EFI");
 #endif

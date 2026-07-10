@@ -15,7 +15,7 @@ ukify_install = custom_target(
         input : '60-ukify.install.in',
         output : '60-ukify.install',
         command : [jinja2_cmdline, '@INPUT@', '@OUTPUT@'],
-        install : want_kernel_install and want_ukify,
+        install : false,
         install_mode : 'rwxr-xr-x',
         install_dir : kernelinstalldir)
 
@@ -40,11 +40,6 @@ if want_kernel_install
 
         install_data('install.conf',
                      install_dir : kerneldir)
-
-        if want_ukify
-                install_data('uki.conf',
-                             install_dir : kerneldir)
-        endif
 
         if install_sysconfdir
                 install_emptydir(sysconfdir / 'kernel/install.d')

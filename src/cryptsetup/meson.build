@@ -23,7 +23,6 @@ executables += [
                         libmount_cflags,
                         libopenssl_cflags,
                         libp11kit_cflags,
-                        tpm2_cflags,
                 ],
         },
         generator_template + {

@@ -65,17 +65,6 @@ endif
 
 ############################################################
 
-if want_tests != 'false' and conf.get('HAVE_BLKID') == 1
-        exe = executables_by_name.get('bootctl')
-        test('test-bootctl-json',
-             files('test-bootctl-json.sh'),
-             args : exe.full_path(),
-             depends : exe,
-             suite : 'boot')
-endif
-
-############################################################
-
 if want_tests != 'false' and conf.get('ENABLE_TMPFILES') == 1
         test_systemd_tmpfiles_py = files('test-systemd-tmpfiles.py')
         exe = executables_by_name.get('systemd-tmpfiles')
@@ -119,13 +108,7 @@ if want_tests != 'false'
              suite : 'dist',
              args : all_rules)
 
-        exe = executables_by_name.get('udevadm')
-        test('udev-rules-check',
-             exe,
-             suite : 'udev',
-             args : ['verify', '--resolve-names=late', all_rules])
-
-        link_abi_targets = [libsystemd, libudev, libshared, libcore]
+        link_abi_targets = [libsystemd, libshared]
         link_abi_targets += module_targets
         foreach _, exe : executables_by_name
                 link_abi_targets += exe
@@ -174,45 +157,6 @@ endif
 
 ############################################################
 
-test_network_generator_conversion_sh = files('test-network-generator-conversion.sh')
-if want_tests != 'false'
-        exe = executables_by_name.get('systemd-network-generator')
-        test('test-network-generator-conversion',
-             test_network_generator_conversion_sh,
-             # https://github.com/mesonbuild/meson/issues/2681
-             args : exe.full_path(),
-             depends : exe,
-             suite : 'network')
-endif
-if install_tests
-        install_data(test_network_generator_conversion_sh,
-                     install_mode : 'rwxr-xr-x',
-                     install_dir : unittestsdir)
-endif
-
-############################################################
-
-sys_script_py = files('sys-script.py')
-test_udev_py = files('test-udev.py')
-if want_tests != 'false'
-        exe = executables_by_name.get('test-udev-rule-runner')
-        test('test-udev',
-             test_udev_py,
-             args : ['-v'],
-             env : test_env + { 'UDEV_RULE_RUNNER' : exe.full_path() },
-             depends : exe,
-             timeout : 180,
-             suite : 'udev')
-endif
-if install_tests
-        install_data(
-                sys_script_py,
-                test_udev_py,
-                install_dir : unittestsdir)
-endif
-
-############################################################
-
 rpm = find_program('rpm', required : false)
 rpmspec = find_program('rpmspec', required : false)
 
@@ -226,55 +170,6 @@ if rpm.found() and rpmspec.found()
         endif
 else
       message('Skipping test-rpm-macros since rpm and/or rpmspec are not available')
-endif
-
-############################################################
-
-if want_tests != 'false' and conf.get('HAVE_DMI') == 1
-        udev_dmi_memory_id_test = files('udev-dmi-memory-id-test.sh')
-        exe = executables_by_name.get('dmi_memory_id')
-
-        if git.found() and fs.is_dir(meson.project_source_root() / '.git')
-                out = run_command(
-                        env, '-u', 'GIT_WORK_TREE',
-                        git, '--git-dir=@0@/.git'.format(meson.project_source_root()),
-                        'ls-files', ':/test/dmidecode-dumps/*.bin',
-                        check: true)
-        else
-                out = run_command(
-                        sh, '-c', 'cd "$1"; echo test/dmidecode-dumps/*.bin', '_', meson.project_source_root(),
-                        check: true)
-        endif
-
-        foreach p : out.stdout().split()
-                source = meson.project_source_root() / p
-                test('dmidecode_' + fs.stem(p),
-                     udev_dmi_memory_id_test,
-                     suite : 'udev',
-                     args : [exe.full_path(),
-                             source,
-                             source + '.txt'],
-                     depends : exe)
-        endforeach
-endif
-
-############################################################
-
-if want_tests != 'false' and conf.get('ENABLE_KERNEL_INSTALL') == 1
-        kernel_install = executables_by_name.get('kernel-install')
-        args = [kernel_install.full_path(), loaderentry_install.full_path(), uki_copy_install]
-        deps = [kernel_install, loaderentry_install]
-        if want_ukify and boot_stubs.length() > 0
-                args += [ukify.full_path(), ukify_install.full_path(), boot_stubs[0]]
-                deps += [ukify, ukify_install, boot_stubs[0]]
-        endif
-
-        test('test-kernel-install',
-             test_kernel_install_sh,
-             env : test_env,
-             args : args,
-             depends : deps,
-             suite : 'kernel-install')
 endif
 
 ############################################################

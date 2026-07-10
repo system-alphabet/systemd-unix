@@ -487,13 +487,6 @@ static SD_VARLINK_DEFINE_STRUCT_TYPE(
                 SD_VARLINK_DEFINE_FIELD(context, SD_VARLINK_STRING, 0));
 
 static SD_VARLINK_DEFINE_STRUCT_TYPE(
-                AppArmorProfile,
-                SD_VARLINK_FIELD_COMMENT("Whether failure to configure the apparmor profile will be ignored"),
-                SD_VARLINK_DEFINE_FIELD(ignore, SD_VARLINK_BOOL, 0),
-                SD_VARLINK_FIELD_COMMENT("The AppArmor profile"),
-                SD_VARLINK_DEFINE_FIELD(profile, SD_VARLINK_STRING, 0));
-
-static SD_VARLINK_DEFINE_STRUCT_TYPE(
                 SmackProcessLabel,
                 SD_VARLINK_FIELD_COMMENT("Whether failure to configure the smack process label will be ignored"),
                 SD_VARLINK_DEFINE_FIELD(ignore, SD_VARLINK_BOOL, 0),
@@ -684,8 +677,6 @@ static SD_VARLINK_DEFINE_STRUCT_TYPE(
                  * https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#Mandatory%20Access%20Control */
                 SD_VARLINK_FIELD_COMMENT("https://www.freedesktop.org/software/systemd/man"PROJECT_VERSION_STR"systemd.exec.html#SELinuxContext="),
                 SD_VARLINK_DEFINE_FIELD_BY_TYPE(SELinuxContext, SELinuxContext, SD_VARLINK_NULLABLE),
-                SD_VARLINK_FIELD_COMMENT("https://www.freedesktop.org/software/systemd/man"PROJECT_VERSION_STR"systemd.exec.html#AppArmorProfile="),
-                SD_VARLINK_DEFINE_FIELD_BY_TYPE(AppArmorProfile, AppArmorProfile, SD_VARLINK_NULLABLE),
                 SD_VARLINK_FIELD_COMMENT("https://www.freedesktop.org/software/systemd/man"PROJECT_VERSION_STR"systemd.exec.html#SmackProcessLabel="),
                 SD_VARLINK_DEFINE_FIELD_BY_TYPE(SmackProcessLabel, SmackProcessLabel, SD_VARLINK_NULLABLE),
 
@@ -2050,7 +2041,6 @@ SD_VARLINK_DEFINE_INTERFACE(
                 &vl_type_MountImage,
                 &vl_type_ExtensionImage,
                 &vl_type_SELinuxContext,
-                &vl_type_AppArmorProfile,
                 &vl_type_SmackProcessLabel,
                 &vl_type_ResourceLimit,
                 &vl_type_ResourceLimitTable,

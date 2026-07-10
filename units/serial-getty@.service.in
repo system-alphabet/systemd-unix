@@ -36,9 +36,7 @@ StandardOutput=tty
 TTYPath=/dev/%I
 TTYReset=yes
 TTYVHangup=yes
-{% if not ENABLE_LOGIND %}
 KillMode=process
-{% endif %}
 IgnoreSIGPIPE=no
 SendSIGHUP=yes
 ImportCredential=tty.serial.%I.agetty.*:agetty.

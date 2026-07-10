@@ -82,7 +82,7 @@
 #include "string-table.h"
 #include "string-util.h"
 #include "strv.h"
-#include "swtpm-util.h"
+
 #include "sync-util.h"
 #include "terminal-util.h"
 #include "tmpfile-util.h"
@@ -1559,72 +1559,6 @@ static int cmdline_add_smbios11(char ***cmdline, int smbios_dir_fd, const char *
 
                 p = mfree(p);
         }
-
-        return 0;
-}
-
-static int start_tpm(
-                const char *swtpm,
-                const char *runtime_dir,
-                const char *sd_socket_activate,
-                char **ret_listen_address,
-                PidRef *ret_pidref) {
-
-        int r;
-
-        assert(swtpm);
-        assert(runtime_dir);
-        assert(sd_socket_activate);
-
-        _cleanup_free_ char *listen_address = path_join(runtime_dir, "tpm.sock");
-        if (!listen_address)
-                return log_oom();
-
-        /* Validate socket path length up front instead of a failure in swtpm */
-        union sockaddr_union sa;
-        r = sockaddr_un_set_path(&sa.un, listen_address);
-        if (r < 0)
-                return log_error_errno(r, "TPM socket path '%s' is too long: %m", listen_address);
-
-        _cleanup_free_ char *transient_state_dir = NULL;
-        const char *state_dir;
-        if (arg_tpm_state_path)
-                state_dir = arg_tpm_state_path;
-        else {
-                transient_state_dir = path_join(runtime_dir, "tpm");
-                if (!transient_state_dir)
-                        return log_oom();
-
-                state_dir = transient_state_dir;
-        }
-
-        r = mkdir_p(state_dir, 0700);
-        if (r < 0)
-                return log_error_errno(r, "Failed to create TPM state directory '%s': %m", state_dir);
-
-        r = manufacture_swtpm(state_dir, /* secret= */ NULL);
-        if (r < 0)
-                return r;
-
-        _cleanup_strv_free_ char **argv = NULL;
-        argv = strv_new(sd_socket_activate, "--listen", listen_address, swtpm, "socket", "--tpm2", "--tpmstate");
-        if (!argv)
-                return log_oom();
-
-        r = strv_extend_joined(&argv, "dir=", state_dir);
-        if (r < 0)
-                return log_oom();
-
-        r = strv_extend_many(&argv, "--ctrl", "type=unixio,fd=3");
-        if (r < 0)
-                return log_oom();
-
-        r = fork_notify(argv, /* child_handler= */ NULL, /* child_userdata= */ NULL, ret_pidref);
-        if (r < 0)
-                return r;
-
-        if (ret_listen_address)
-                *ret_listen_address = TAKE_PTR(listen_address);
 
         return 0;
 }
@@ -3464,83 +3398,10 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                 }
         }
 
-        _cleanup_free_ char *swtpm = NULL;
-        if (arg_tpm != 0) {
-                if (arg_tpm_state_mode == STATE_AUTO && !arg_ephemeral) {
-                        assert(!arg_tpm_state_path);
+        if (arg_tpm > 0)
+                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not available.");
 
-                        r = make_sidecar_path(".tpmstate", &arg_tpm_state_path);
-                        if (r < 0)
-                                return r;
-
-                        log_debug("Storing TPM state persistently under '%s'.", arg_tpm_state_path);
-                }
-
-                r = find_executable("swtpm", &swtpm);
-                if (r < 0) {
-                        /* log if the user asked for swtpm and we cannot find it */
-                        if (arg_tpm > 0)
-                                return log_error_errno(r, "Failed to find swtpm binary: %m");
-                        /* also log if we got an error other than ENOENT from find_executable */
-                        if (r != -ENOENT && arg_tpm < 0)
-                                return log_error_errno(r, "Error detecting swtpm: %m");
-                }
-        }
-
-        _cleanup_free_ char *tpm_socket_address = NULL;
-        if (swtpm) {
-                _cleanup_(fork_notify_terminate) PidRef child = PIDREF_NULL;
-
-                if (!GREEDY_REALLOC(children, n_children + 1))
-                        return log_oom();
-
-                r = start_tpm(swtpm, runtime_dir, sd_socket_activate, &tpm_socket_address, &child);
-                if (r < 0) {
-                        /* only bail if the user asked for a tpm */
-                        if (arg_tpm > 0)
-                                return log_error_errno(r, "Failed to start tpm: %m");
-
-                        log_debug_errno(r, "Failed to start tpm, ignoring: %m");
-                } else {
-                        _cleanup_(sd_event_source_unrefp) sd_event_source *source = NULL;
-                        r = event_add_child_pidref(event, &source, &child, WEXITED, on_child_exit, /* userdata= */ NULL);
-                        if (r < 0)
-                                return r;
-
-                        pidref_done(&child);
-                        children[n_children++] = TAKE_PTR(source);
-                }
-        }
-
-        if (tpm_socket_address) {
-                r = qemu_config_section(config_file, "chardev", "chrtpm",
-                                        "backend", "socket",
-                                        "path", tpm_socket_address);
-                if (r < 0)
-                        return r;
-
-                r = qemu_config_section(config_file, "tpmdev", "tpm0",
-                                        "type", "emulator",
-                                        "chardev", "chrtpm");
-                if (r < 0)
-                        return r;
-
-                const char *tpm_driver;
-                if (native_architecture() == ARCHITECTURE_X86_64)
-                        tpm_driver = "tpm-tis";
-                else if (IN_SET(native_architecture(), ARCHITECTURE_ARM64, ARCHITECTURE_ARM64_BE))
-                        tpm_driver = "tpm-tis-device";
-                else
-                        tpm_driver = NULL;
-
-                if (tpm_driver) {
-                        r = qemu_config_section(config_file, "device", "tpmdev0",
-                                                "driver", tpm_driver,
-                                                "tpmdev", "tpm0");
-                        if (r < 0)
-                                return r;
-                }
-        }
+        if (false) {}
 
         if (arg_forward_journal) {
                 _cleanup_free_ char *listen_address = NULL;

@@ -6,7 +6,6 @@ import subprocess
 import sys
 
 NAME_TO_MAGIC = {
-    'apparmorfs':      ['AAFS_MAGIC'],
     'adfs':            ['ADFS_SUPER_MAGIC'],
     'affs':            ['AFFS_SUPER_MAGIC'],
     'afs':             ['AFS_FS_MAGIC',
@@ -99,6 +98,7 @@ NAME_TO_MAGIC = {
     'reiserfs':        ['REISERFS_SUPER_MAGIC'],
     'rpc_pipefs':      ['RPC_PIPEFS_SUPER_MAGIC'],
     'secretmem':       ['SECRETMEM_MAGIC'],
+    'apparmorfs':      ['AAFS_MAGIC'],
     'securityfs':      ['SECURITYFS_MAGIC'],
     'selinuxfs':       ['SELINUX_MAGIC'],
     'shiftfs':         ['SHIFTFS_MAGIC'],
@@ -232,8 +232,6 @@ FILESYSTEM_SETS = [
     (
         '@security',
         'Security/MAC API VFS',
-        'apparmorfs',
-        'selinuxfs',
         'smackfs',
     ),
     (

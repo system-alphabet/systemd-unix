@@ -19,7 +19,6 @@ executables += [
                         libfdisk_cflags,
                         libmount_cflags,
                         libopenssl_cflags,
-                        tpm2_cflags,
                 ],
         },
         executable_template + {
@@ -38,7 +37,6 @@ executables += [
                         libfdisk_cflags,
                         libmount_cflags,
                         libopenssl_cflags,
-                        tpm2_cflags,
                 ],
         },
 ]

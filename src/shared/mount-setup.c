@@ -362,7 +362,7 @@ int mount_setup_early(void) {
         return mount_points_setup(N_EARLY_MOUNT, /* loaded_policy= */ false);
 }
 
-#if HAVE_SELINUX || ENABLE_SMACK
+#if ENABLE_SMACK
 static int relabel_cb(
                 RecurseDirEvent event,
                 const char *path,
@@ -481,7 +481,7 @@ int mount_setup(bool loaded_policy, bool leave_propagation) {
         if (r < 0)
                 return r;
 
-#if HAVE_SELINUX || ENABLE_SMACK
+#if ENABLE_SMACK
         /* Nodes in devtmpfs and /run need to be manually updated for
          * the appropriate labels, after mounting. The other virtual
          * API file systems like /sys and /proc do not need that, they

@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include "acl-util.h"
-#include "apparmor-util.h"
 #include "blkid-util.h"
 #include "bpf-util.h"
 #include "compress.h"
@@ -28,10 +27,9 @@
 #include "pkcs11-util.h"
 #include "qrcode-util.h"
 #include "seccomp-util.h"
-#include "selinux-util.h"
 #include "ssl-util.h"
 #include "tests.h"
-#include "tpm2-util.h"
+
 
 #define ASSERT_DLOPEN(func, cond)                                       \
         do {                                                            \
@@ -59,7 +57,6 @@ static int run(int argc, char **argv) {
         ASSERT_DLOPEN(dlopen_gnutls, HAVE_GNUTLS);
         ASSERT_DLOPEN(dlopen_idn, HAVE_LIBIDN2);
         ASSERT_DLOPEN(dlopen_libacl, HAVE_ACL);
-        ASSERT_DLOPEN(dlopen_libapparmor, HAVE_APPARMOR);
         ASSERT_DLOPEN(dlopen_libarchive, HAVE_LIBARCHIVE);
         ASSERT_DLOPEN(dlopen_libaudit, HAVE_AUDIT);
         ASSERT_DLOPEN(dlopen_libblkid, HAVE_BLKID);
@@ -69,7 +66,6 @@ static int run(int argc, char **argv) {
         ASSERT_DLOPEN(dlopen_libmount, HAVE_LIBMOUNT);
         ASSERT_DLOPEN(dlopen_libpam, HAVE_PAM);
         ASSERT_DLOPEN(dlopen_libseccomp, HAVE_SECCOMP);
-        ASSERT_DLOPEN(dlopen_libselinux, HAVE_SELINUX);
         ASSERT_DLOPEN(dlopen_libcrypto, HAVE_OPENSSL);
         ASSERT_DLOPEN(dlopen_libssl, HAVE_OPENSSL);
         ASSERT_DLOPEN(dlopen_xz, HAVE_XZ);
@@ -80,7 +76,7 @@ static int run(int argc, char **argv) {
         ASSERT_DLOPEN(dlopen_pcre2, HAVE_PCRE2);
         ASSERT_DLOPEN(dlopen_pwquality, HAVE_PWQUALITY);
         ASSERT_DLOPEN(dlopen_qrencode, HAVE_QRENCODE);
-        ASSERT_DLOPEN(dlopen_tpm2, HAVE_TPM2);
+
         ASSERT_DLOPEN(dlopen_zlib, HAVE_ZLIB);
         ASSERT_DLOPEN(dlopen_zstd, HAVE_ZSTD);
 

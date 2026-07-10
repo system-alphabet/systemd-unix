@@ -12,11 +12,6 @@ lib_cryptsetup_token_common = static_library(
         link_with : libshared,
         build_by_default : false)
 
-cryptsetup_token_systemd_tpm2_sources = files(
-        'cryptsetup-token-systemd-tpm2.c',
-        'luks2-tpm2.c',
-)
-
 cryptsetup_token_systemd_fido2_sources = files(
         'cryptsetup-token-systemd-fido2.c',
         'luks2-fido2.c',
@@ -40,18 +35,6 @@ template = {
 }
 
 modules += [
-        template + {
-                'name' : 'cryptsetup-token-systemd-tpm2',
-                'conditions' : [
-                        'HAVE_LIBCRYPTSETUP_PLUGINS',
-                        'HAVE_TPM2',
-                ],
-                'sources' : cryptsetup_token_systemd_tpm2_sources,
-                'dependencies' : [
-                        libcryptsetup_cflags,
-                        tpm2_cflags,
-                ],
-        },
         template + {
                 'name' : 'cryptsetup-token-systemd-fido2',
                 'conditions' : [

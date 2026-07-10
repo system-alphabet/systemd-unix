@@ -10,7 +10,7 @@
 #include "rm-rf.h"
 #include "tests.h"
 #include "tmpfile-util.h"
-#include "tpm2-util.h"
+
 #include "user-util.h"
 
 TEST(read_credential_strings) {

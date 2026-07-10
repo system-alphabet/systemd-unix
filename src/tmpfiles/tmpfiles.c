@@ -55,7 +55,6 @@
 #include "pretty-print.h"
 #include "rlimit-util.h"
 #include "rm-rf.h"
-#include "selinux-util.h"
 #include "set.h"
 #include "sort-util.h"
 #include "specifier.h"
@@ -2073,9 +2072,7 @@ static int create_file(
                 return dir_fd;
 
         WITH_UMASK(0000) {
-                mac_selinux_create_file_prepare(path, S_IFREG);
                 fd = RET_NERRNO(openat(dir_fd, bn, O_CREAT|O_EXCL|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC|O_WRONLY|O_NOCTTY, i->mode));
-                mac_selinux_create_file_clear();
         }
 
         if (fd < 0) {
@@ -2156,9 +2153,7 @@ static int truncate_file(
                 creation = CREATION_NORMAL; /* Didn't work without O_CREATE, try again with */
 
                 WITH_UMASK(0000) {
-                        mac_selinux_create_file_prepare(path, S_IFREG);
                         fd = RET_NERRNO(openat(dir_fd, bn, O_CREAT|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC|O_WRONLY|O_NOCTTY, i->mode));
-                        mac_selinux_create_file_clear();
                 }
         }
 
@@ -2501,9 +2496,7 @@ static int create_device(
                 return dfd;
 
         WITH_UMASK(0000) {
-                mac_selinux_create_file_prepare(i->path, file_type);
                 r = RET_NERRNO(mknodat(dfd, bn, i->mode | file_type, i->major_minor));
-                mac_selinux_create_file_clear();
         }
         creation = r >= 0 ? CREATION_NORMAL : CREATION_EXISTING;
 
@@ -2532,9 +2525,7 @@ static int create_device(
                         fd = safe_close(fd);
 
                         WITH_UMASK(0000) {
-                                mac_selinux_create_file_prepare(i->path, file_type);
                                 r = mknodat_atomic(dfd, bn, i->mode | file_type, i->major_minor);
-                                mac_selinux_create_file_clear();
                         }
                         if (ERRNO_IS_PRIVILEGE(r))
                                 goto handle_privilege;
@@ -2543,9 +2534,7 @@ static int create_device(
                                 if (r < 0)
                                         return log_error_errno(r, "rm -rf %s failed: %m", i->path);
 
-                                mac_selinux_create_file_prepare(i->path, file_type);
                                 r = RET_NERRNO(mknodat(dfd, bn, i->mode | file_type, i->major_minor));
-                                mac_selinux_create_file_clear();
                         }
                         if (r < 0)
                                 return log_error_errno(r, "Failed to create device node '%s': %m", i->path);
@@ -2611,9 +2600,7 @@ static int create_fifo(Context *c, Item *i) {
                 return pfd;
 
         WITH_UMASK(0000) {
-                mac_selinux_create_file_prepare(i->path, S_IFIFO);
                 r = RET_NERRNO(mkfifoat(pfd, bn, i->mode));
-                mac_selinux_create_file_clear();
         }
 
         creation = r >= 0 ? CREATION_NORMAL : CREATION_EXISTING;
@@ -2636,18 +2623,14 @@ static int create_fifo(Context *c, Item *i) {
                         fd = safe_close(fd);
 
                         WITH_UMASK(0000) {
-                                mac_selinux_create_file_prepare(i->path, S_IFIFO);
                                 r = mkfifoat_atomic(pfd, bn, i->mode);
-                                mac_selinux_create_file_clear();
                         }
                         if (IN_SET(r, -EISDIR, -EEXIST, -ENOTEMPTY)) {
                                 r = rm_rf_child(pfd, bn, REMOVE_PHYSICAL);
                                 if (r < 0)
                                         return log_error_errno(r, "rm -rf %s failed: %m", i->path);
 
-                                mac_selinux_create_file_prepare(i->path, S_IFIFO);
                                 r = RET_NERRNO(mkfifoat(pfd, bn, i->mode));
-                                mac_selinux_create_file_clear();
                         }
                         if (r < 0)
                                 return log_error_errno(r, "Failed to create FIFO %s: %m", i->path);
@@ -2716,9 +2699,7 @@ static int create_symlink(Context *c, Item *i) {
         if (pfd < 0)
                 return pfd;
 
-        mac_selinux_create_file_prepare(i->path, S_IFLNK);
         r = RET_NERRNO(symlinkat(i->argument, pfd, bn));
-        mac_selinux_create_file_clear();
 
         creation = r >= 0 ? CREATION_NORMAL : CREATION_EXISTING;
 

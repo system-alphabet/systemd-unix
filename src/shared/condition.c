@@ -11,7 +11,6 @@
 #include "sd-id128.h"
 
 #include "alloc-util.h"
-#include "apparmor-util.h"
 #include "architecture.h"
 #include "battery-util.h"
 #include "bitfield.h"
@@ -53,7 +52,6 @@
 #include "proc-cmdline.h"
 #include "process-util.h"
 #include "psi-util.h"
-#include "selinux-util.h"
 #include "smack-util.h"
 #include "special.h"
 #include "stat-util.h"
@@ -62,7 +60,6 @@
 #include "strv.h"
 #include "time-util.h"
 #include "tomoyo-util.h"
-#include "tpm2-util.h"
 #include "uid-classification.h"
 #include "unaligned.h"
 #include "user-util.h"
@@ -813,27 +810,13 @@ static int condition_test_ac_power(Condition *c, char **env) {
         return (on_ac_power() != 0) == !!r;
 }
 
-static int has_tpm2(void) {
-        /* Checks whether the kernel has the TPM subsystem enabled and the firmware reports support. Note
-         * we don't check for actual TPM devices, since we might not have loaded the driver for it yet, i.e.
-         * during early boot where we very likely want to use this condition check).
-         *
-         * Note that we don't check if we ourselves are built with TPM2 support here! */
-
-        return FLAGS_SET(tpm2_support_full(TPM2_SUPPORT_SUBSYSTEM|TPM2_SUPPORT_FIRMWARE), TPM2_SUPPORT_SUBSYSTEM|TPM2_SUPPORT_FIRMWARE);
-}
-
 static int condition_test_security(Condition *c, char **env) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_SECURITY);
 
-        if (streq(c->parameter, "selinux"))
-                return mac_selinux_use();
         if (streq(c->parameter, "smack"))
                 return mac_smack_use();
-        if (streq(c->parameter, "apparmor"))
-                return mac_apparmor_use();
         if (streq(c->parameter, "audit"))
                 return use_audit();
         if (streq(c->parameter, "ima"))
@@ -842,8 +825,6 @@ static int condition_test_security(Condition *c, char **env) {
                 return mac_tomoyo_use();
         if (streq(c->parameter, "uefi-secureboot"))
                 return is_efi_secure_boot();
-        if (streq(c->parameter, "tpm2"))
-                return has_tpm2();
         if (streq(c->parameter, "cvm"))
                 return detect_confidential_virtualization() > 0;
         if (streq(c->parameter, "measured-uki"))

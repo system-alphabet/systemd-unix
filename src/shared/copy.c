@@ -27,7 +27,6 @@
 #include "path-util.h"
 #include "recurse-dir.h"
 #include "rm-rf.h"
-#include "selinux-util.h"
 #include "signal-util.h"
 #include "stat-util.h"
 #include "stdio-util.h"
@@ -493,14 +492,7 @@ static int fd_copy_symlink(
         if (r < 0)
                 return r;
 
-        if (copy_flags & COPY_MAC_CREATE) {
-                r = mac_selinux_create_file_prepare_at(dt, to, S_IFLNK);
-                if (r < 0)
-                        return r;
-        }
         r = RET_NERRNO(symlinkat(target, dt, to));
-        if (copy_flags & COPY_MAC_CREATE)
-                mac_selinux_create_file_clear();
         if (r < 0) {
                 if (FLAGS_SET(copy_flags, COPY_GRACEFUL_WARN) && (ERRNO_IS_PRIVILEGE(r) || ERRNO_IS_NOT_SUPPORTED(r))) {
                         log_notice_errno(r, "Failed to copy symlink%s%s%s, ignoring: %m",
@@ -849,14 +841,7 @@ static int fd_copy_regular(
         if (fdf < 0)
                 return fdf;
 
-        if (copy_flags & COPY_MAC_CREATE) {
-                r = mac_selinux_create_file_prepare_at(dt, to, S_IFREG);
-                if (r < 0)
-                        return r;
-        }
         fdt = openat(dt, to, O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOCTTY|O_NOFOLLOW, st->st_mode & 07777);
-        if (copy_flags & COPY_MAC_CREATE)
-                mac_selinux_create_file_clear();
         if (fdt < 0)
                 return -errno;
 
@@ -936,14 +921,7 @@ static int fd_copy_fifo(
         if (r > 0) /* worked! */
                 return 0;
 
-        if (copy_flags & COPY_MAC_CREATE) {
-                r = mac_selinux_create_file_prepare_at(dt, to, S_IFIFO);
-                if (r < 0)
-                        return r;
-        }
         r = RET_NERRNO(mkfifoat(dt, to, st->st_mode & 07777));
-        if (copy_flags & COPY_MAC_CREATE)
-                mac_selinux_create_file_clear();
         if (FLAGS_SET(copy_flags, COPY_GRACEFUL_WARN) && (ERRNO_IS_NEG_PRIVILEGE(r) || ERRNO_IS_NEG_NOT_SUPPORTED(r))) {
                 log_notice_errno(r, "Failed to copy fifo%s%s%s, ignoring: %m",
                                  isempty(from) ? "" : " '",
@@ -989,14 +967,7 @@ static int fd_copy_node(
         if (r > 0) /* worked! */
                 return 0;
 
-        if (copy_flags & COPY_MAC_CREATE) {
-                r = mac_selinux_create_file_prepare_at(dt, to, st->st_mode & S_IFMT);
-                if (r < 0)
-                        return r;
-        }
         r = RET_NERRNO(mknodat(dt, to, st->st_mode, st->st_rdev));
-        if (copy_flags & COPY_MAC_CREATE)
-                mac_selinux_create_file_clear();
         if (FLAGS_SET(copy_flags, COPY_GRACEFUL_WARN) && (ERRNO_IS_NEG_PRIVILEGE(r) || ERRNO_IS_NEG_NOT_SUPPORTED(r))) {
                 log_notice_errno(r, "Failed to copy node%s%s%s, ignoring: %m",
                                  isempty(from) ? "" : " '",
@@ -1083,7 +1054,7 @@ static int fd_copy_directory(
 
         exists = r >= 0;
 
-        XOpenFlags flags = copy_flags & COPY_MAC_CREATE ? XO_LABEL : 0;
+        XOpenFlags flags = 0;
         if (hashmap_contains(subvolumes, st)) {
                 flags |= XO_SUBVOLUME;
                 if ((PTR_TO_INT(hashmap_get(subvolumes, st)) & BTRFS_SUBVOL_NODATACOW))
@@ -1511,7 +1482,7 @@ int copy_file_at_full(
         WITH_UMASK(0000) {
                 fdt = xopenat_lock_full(dir_fdt, to,
                                         flags|O_WRONLY|O_CREAT|O_CLOEXEC|O_NOCTTY,
-                                        XO_REGULAR | (copy_flags & COPY_MAC_CREATE ? XO_LABEL : 0),
+                                        XO_REGULAR,
                                         mode,
                                         copy_flags & COPY_LOCK_BSD ? LOCK_BSD : LOCK_NONE, LOCK_EX);
                 if (fdt < 0)
@@ -1590,14 +1561,7 @@ int copy_file_atomic_at_full(
         assert(to);
         assert(!FLAGS_SET(copy_flags, COPY_LOCK_BSD));
 
-        if (copy_flags & COPY_MAC_CREATE) {
-                r = mac_selinux_create_file_prepare_at(dir_fdt, to, S_IFREG);
-                if (r < 0)
-                        return r;
-        }
         fdt = open_tmpfile_linkable_at(dir_fdt, to, O_WRONLY|O_CLOEXEC, &t);
-        if (copy_flags & COPY_MAC_CREATE)
-                mac_selinux_create_file_clear();
         if (fdt < 0)
                 return fdt;
 

@@ -197,7 +197,6 @@ int make_socket_fd(int log_level, const char* address, int type, int flags) {
                         /* transparent= */ false,
                         0755,
                         0644,
-                        /* selinux_label= */ NULL,
                         /* smack_label= */ NULL,
                         /* xattr_entrypoint= */ NULL,
                         /* xattr_listen= */ NULL);

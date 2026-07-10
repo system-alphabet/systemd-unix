@@ -1311,7 +1311,7 @@ static int print_property(const char *name, const char *expected_value, sd_bus_m
 
                         return 1;
 
-                } else if (STR_IN_SET(name, "SELinuxContext", "AppArmorProfile", "SmackProcessLabel")) {
+                } else if (STR_IN_SET(name, "SELinuxContext", "SmackProcessLabel")) {
                         int ignore;
                         const char *s;
 

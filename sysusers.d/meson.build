@@ -3,7 +3,7 @@
 files = [['README',                true],
          ['systemd-coredump.conf', conf.get('ENABLE_COREDUMP') == 1],
          ['systemd-oom.conf',      conf.get('ENABLE_OOMD') == 1],
-         ['systemd-remote.conf',   conf.get('ENABLE_REMOTE') == 1 and conf.get('HAVE_MICROHTTPD') == 1]]
+         ['systemd-remote.conf',   conf.get('HAVE_MICROHTTPD') == 1]]
 
 foreach tuple : files
         if enable_sysusers and tuple[1]
@@ -13,9 +13,6 @@ endforeach
 
 in_files = [['basic.conf',            true],
             ['systemd-journal.conf',  true],
-            ['systemd-network.conf',  conf.get('ENABLE_NETWORKD') == 1],
-            ['systemd-resolve.conf',  conf.get('ENABLE_RESOLVE') == 1],
-            ['systemd-timesync.conf', conf.get('ENABLE_TIMESYNCD') == 1],
             ['systemd-imds.conf',     conf.get('ENABLE_IMDS') == 1]]
 
 foreach tuple : in_files

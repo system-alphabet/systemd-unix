@@ -5,7 +5,6 @@
 #include "errno-util.h"
 #include "label-util.h"         /* IWYU pragma: keep */
 #include "mkdir.h"
-#include "selinux-util.h"
 #include "smack-util.h"
 
 int mkdirat_label(int dirfd, const char *path, mode_t mode) {
@@ -13,12 +12,7 @@ int mkdirat_label(int dirfd, const char *path, mode_t mode) {
 
         assert(path);
 
-        r = mac_selinux_create_file_prepare_at(dirfd, path, S_IFDIR);
-        if (r < 0)
-                return r;
-
         r = RET_NERRNO(mkdirat(dirfd, path, mode));
-        mac_selinux_create_file_clear();
         if (r < 0)
                 return r;
 

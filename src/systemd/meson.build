@@ -100,7 +100,7 @@ if cxx_cmd != ''
         endforeach
 endif
 
-foreach header : _systemd_headers + _not_installed_headers + [libudev_h_path]
+foreach header : _systemd_headers + _not_installed_headers
         foreach opt : opts
                 std_name = opt.length() == 2 ? '_'.join(opt[1].split(':')) : ''
                 test('cc-' + fs.name(header) + '_' + opt[0] + std_name,

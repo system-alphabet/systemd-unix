@@ -45,7 +45,6 @@ typedef struct MethodEnrollParameters {
         char *unlock_keyfile;
         int64_t unlock_keyfile_fd_idx;
         char *unlock_fido2_device;
-        char *unlock_tpm2_device;
         char *password;
         char *fido2_device;
         char *fido2_pin;
@@ -63,7 +62,6 @@ static void method_enroll_parameters_done(MethodEnrollParameters *p) {
         erase_and_free(p->unlock_password);
         free(p->unlock_keyfile);
         free(p->unlock_fido2_device);
-        free(p->unlock_tpm2_device);
         erase_and_free(p->password);
         free(p->fido2_device);
         erase_and_free(p->fido2_pin);
@@ -161,7 +159,6 @@ static int vl_method_enroll(
                 { "unlockKeyFile",             SD_JSON_VARIANT_STRING,        json_dispatch_path,        offsetof(MethodEnrollParameters, unlock_keyfile),                SD_JSON_NULLABLE|SD_JSON_STRICT },
                 { "unlockKeyFileDescriptor",   _SD_JSON_VARIANT_TYPE_INVALID, sd_json_dispatch_int64,    offsetof(MethodEnrollParameters, unlock_keyfile_fd_idx),         SD_JSON_NULLABLE },
                 { "unlockFido2Device",         SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(MethodEnrollParameters, unlock_fido2_device),           SD_JSON_NULLABLE },
-                { "unlockTpm2Device",          SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(MethodEnrollParameters, unlock_tpm2_device),            SD_JSON_NULLABLE },
                 { "password",                  SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(MethodEnrollParameters, password),                      SD_JSON_NULLABLE },
                 { "fido2Device",               SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(MethodEnrollParameters, fido2_device),                  SD_JSON_NULLABLE },
                 { "fido2Pin",                  SD_JSON_VARIANT_STRING,        sd_json_dispatch_string,   offsetof(MethodEnrollParameters, fido2_pin),                     SD_JSON_NULLABLE },
@@ -255,21 +252,6 @@ static int vl_method_enroll(
                 }
 
                 c.unlock_type = UNLOCK_FIDO2;
-        }
-
-        if (p.unlock_tpm2_device) {
-                if (c.unlock_type >= 0)
-                        return sd_varlink_error_invalid_parameter_name(link, "unlockTpm2Device");
-
-                if (!streq(p.unlock_tpm2_device, "auto")) {
-                        if (!path_is_normalized(p.unlock_tpm2_device) || !path_is_absolute(p.unlock_tpm2_device))
-                                return sd_varlink_error_invalid_parameter_name(link, "unlockTpm2Device");
-
-                        if (strdup_to(&c.unlock_tpm2_device, p.unlock_tpm2_device) < 0)
-                                return -ENOMEM;
-                }
-
-                c.unlock_type = UNLOCK_TPM2;
         }
 
         /* If no unlock method is specified, return a recognizable error. We generate invalid parameter name

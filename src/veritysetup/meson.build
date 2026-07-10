@@ -10,7 +10,6 @@ executables += [
                 'sources' : files('veritysetup.c'),
                 'dependencies' : [
                         libcryptsetup_cflags,
-                        tpm2_cflags,
                 ],
         },
         generator_template + {
