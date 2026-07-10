@@ -30,6 +30,8 @@
 #include "unit-def.h"
 #include "xattr-util.h"
 
+#if ENABLE_CGROUP
+
 static void show_pid_array(
                 pid_t pids[],
                 size_t n_pids,
@@ -457,3 +459,46 @@ int show_cgroup_get_path_and_warn(
 
         return 0;
 }
+
+#else
+
+int show_cgroup_by_path(const char *path, const char *prefix, size_t n_columns, OutputFlags flags) {
+        return 0;
+}
+
+int show_cgroup(const char *path, const char *prefix, size_t n_columns, OutputFlags flags) {
+        return 0;
+}
+
+int show_cgroup_and_extra(
+                const char *path,
+                const char *prefix,
+                size_t n_columns,
+                const pid_t extra_pids[],
+                size_t n_extra_pids,
+                OutputFlags flags) {
+
+        return 0;
+}
+
+int show_cgroup_get_unit_path_and_warn(
+                sd_bus *bus,
+                const char *unit,
+                char **ret) {
+
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int show_cgroup_get_path_and_warn(
+                const char *machine,
+                const char *prefix,
+                char **ret) {
+
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+#endif

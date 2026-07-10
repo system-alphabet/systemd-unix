@@ -55,6 +55,7 @@ int cg_cpu_weight_parse(const char *s, uint64_t *ret) {
         return cg_weight_parse(s, ret);
 }
 
+#if ENABLE_CGROUP
 static int trim_cb(
                 RecurseDirEvent event,
                 const char *path,
@@ -489,3 +490,49 @@ int cg_has_legacy(void) {
                                "Unknown filesystem type %llx mounted on /sys/fs/cgroup/.",
                                (unsigned long long) fs.f_type);
 }
+
+#else
+
+int cg_trim(const char *path, bool delete_root) {
+        return 0;
+}
+
+int cg_create(const char *path) {
+        return -EOPNOTSUPP;
+}
+
+int cg_attach(const char *path, pid_t pid) {
+        return 0;
+}
+
+int cg_fd_attach(int fd, pid_t pid) {
+        return 0;
+}
+
+int cg_create_and_attach(const char *path, pid_t pid) {
+        return -EOPNOTSUPP;
+}
+
+int cg_set_access(const char *path, uid_t uid, gid_t gid) {
+        return 0;
+}
+
+int cg_set_access_recursive(const char *path, uid_t uid, gid_t gid) {
+        return 0;
+}
+
+int cg_enable(CGroupMask supported, CGroupMask mask, const char *p, CGroupMask *ret_result_mask) {
+        if (ret_result_mask)
+                *ret_result_mask = 0;
+        return 0;
+}
+
+int cg_migrate(const char *from, const char *to, CGroupFlags flags) {
+        return 0;
+}
+
+int cg_has_legacy(void) {
+        return false;
+}
+
+#endif

@@ -542,6 +542,9 @@ option('llvm-fuzz', type : 'boolean', value : false,
 option('kernel-install', type: 'boolean', value: true,
        description : 'install kernel-install and associated files')
 
+option('cgroup', type : 'boolean', value : true,
+       description : 'enable cgroup support (disable for non-Linux platforms)')
+
 option('analyze', type: 'boolean', value: true,
        description : 'install systemd-analyze')
 

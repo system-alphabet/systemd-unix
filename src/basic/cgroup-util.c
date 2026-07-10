@@ -35,6 +35,8 @@
 #include "user-util.h"
 #include "xattr-util.h"
 
+#if ENABLE_CGROUP
+
 int cg_is_available(void) {
         struct statfs fs;
 
@@ -1799,3 +1801,442 @@ static const char* const managed_oom_preference_table[_MANAGED_OOM_PREFERENCE_MA
 };
 
 DEFINE_STRING_TABLE_LOOKUP(managed_oom_preference, ManagedOOMPreference);
+
+#else  /* !ENABLE_CGROUP */
+
+const uint64_t cgroup_io_limit_defaults[_CGROUP_IO_LIMIT_TYPE_MAX] = {
+        [CGROUP_IO_RBPS_MAX]  = CGROUP_LIMIT_MAX,
+        [CGROUP_IO_WBPS_MAX]  = CGROUP_LIMIT_MAX,
+        [CGROUP_IO_RIOPS_MAX] = CGROUP_LIMIT_MAX,
+        [CGROUP_IO_WIOPS_MAX] = CGROUP_LIMIT_MAX,
+};
+
+static const char* const cgroup_io_limit_type_table[_CGROUP_IO_LIMIT_TYPE_MAX] = {
+        [CGROUP_IO_RBPS_MAX]  = "IOReadBandwidthMax",
+        [CGROUP_IO_WBPS_MAX]  = "IOWriteBandwidthMax",
+        [CGROUP_IO_RIOPS_MAX] = "IOReadIOPSMax",
+        [CGROUP_IO_WIOPS_MAX] = "IOWriteIOPSMax",
+};
+
+DEFINE_STRING_TABLE_LOOKUP(cgroup_io_limit_type, CGroupIOLimitType);
+
+void cgroup_io_limits_list(void) {
+        DUMP_STRING_TABLE(cgroup_io_limit_type, CGroupIOLimitType, _CGROUP_IO_LIMIT_TYPE_MAX);
+}
+
+static const char *const cgroup_controller_table[_CGROUP_CONTROLLER_MAX] = {
+        [CGROUP_CONTROLLER_CPU]                             = "cpu",
+        [CGROUP_CONTROLLER_CPUACCT]                         = "cpuacct",
+        [CGROUP_CONTROLLER_CPUSET]                          = "cpuset",
+        [CGROUP_CONTROLLER_IO]                              = "io",
+        [CGROUP_CONTROLLER_BLKIO]                           = "blkio",
+        [CGROUP_CONTROLLER_MEMORY]                          = "memory",
+        [CGROUP_CONTROLLER_DEVICES]                         = "devices",
+        [CGROUP_CONTROLLER_PIDS]                            = "pids",
+        [CGROUP_CONTROLLER_BPF_FIREWALL]                    = "bpf-firewall",
+        [CGROUP_CONTROLLER_BPF_DEVICES]                     = "bpf-devices",
+        [CGROUP_CONTROLLER_BPF_FOREIGN]                     = "bpf-foreign",
+        [CGROUP_CONTROLLER_BPF_SOCKET_BIND]                 = "bpf-socket-bind",
+        [CGROUP_CONTROLLER_BPF_RESTRICT_NETWORK_INTERFACES] = "bpf-restrict-network-interfaces",
+        [CGROUP_CONTROLLER_BPF_BIND_NETWORK_INTERFACE]      = "bpf-bind-network-interface",
+};
+
+DEFINE_STRING_TABLE_LOOKUP(cgroup_controller, CGroupController);
+
+static const char* const managed_oom_mode_table[_MANAGED_OOM_MODE_MAX] = {
+        [MANAGED_OOM_AUTO] = "auto",
+        [MANAGED_OOM_KILL] = "kill",
+};
+
+DEFINE_STRING_TABLE_LOOKUP(managed_oom_mode, ManagedOOMMode);
+
+static const char* const managed_oom_preference_table[_MANAGED_OOM_PREFERENCE_MAX] = {
+        [MANAGED_OOM_PREFERENCE_NONE] = "none",
+        [MANAGED_OOM_PREFERENCE_AVOID] = "avoid",
+        [MANAGED_OOM_PREFERENCE_OMIT] = "omit",
+};
+
+DEFINE_STRING_TABLE_LOOKUP(managed_oom_preference, ManagedOOMPreference);
+
+int cg_is_available(void) {
+        return false;
+}
+
+int cg_path_open(const char *path) {
+        return -ENODATA;
+}
+
+int cg_cgroupid_open(int cgroupfs_fd, uint64_t id) {
+        return -ENODATA;
+}
+
+int cg_path_from_cgroupid(int cgroupfs_fd, uint64_t id, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_enumerate_processes(const char *path, FILE **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_read_pid(FILE *f, pid_t *ret, CGroupFlags flags) {
+        if (ret)
+                *ret = 0;
+        return 0;
+}
+
+int cg_read_pidref(FILE *f, PidRef *ret, CGroupFlags flags) {
+        if (ret)
+                *ret = PIDREF_NULL;
+        return 0;
+}
+
+bool cg_kill_supported(void) {
+        return false;
+}
+
+int cg_enumerate_subgroups(const char *path, DIR **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_read_subgroup(DIR *d, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return 0;
+}
+
+int cg_kill(
+                const char *path,
+                int sig,
+                CGroupFlags flags,
+                Set *killed_pids,
+                cg_kill_log_func_t log_kill,
+                void *userdata) {
+        return 0;
+}
+
+int cg_kill_recursive(
+                const char *path,
+                int sig,
+                CGroupFlags flags,
+                Set *killed_pids,
+                cg_kill_log_func_t log_kill,
+                void *userdata) {
+        return 0;
+}
+
+int cg_kill_kernel_sigkill(const char *path, uint64_t *ret_n_pids_killed) {
+        if (ret_n_pids_killed)
+                *ret_n_pids_killed = UINT64_MAX;
+        return -EOPNOTSUPP;
+}
+
+int cg_get_path(const char *path, const char *suffix, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_set_xattr(const char *path, const char *name, const void *value, size_t size, int flags) {
+        return 0;
+}
+
+int cg_get_xattr(const char *path, const char *name, char **ret, size_t *ret_size) {
+        if (ret)
+                *ret = NULL;
+        if (ret_size)
+                *ret_size = 0;
+        return -ENODATA;
+}
+
+int cg_get_xattr_bool(const char *path, const char *name) {
+        return false;
+}
+
+int cg_remove_xattr(const char *path, const char *name) {
+        return 0;
+}
+
+int cg_pid_get_path(pid_t pid, char **ret_path) {
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_path(const PidRef *pidref, char **ret_path) {
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_is_empty(const char *path) {
+        return true;
+}
+
+int cg_split_spec(const char *spec, char **ret_controller, char **ret_path) {
+        if (ret_controller)
+                *ret_controller = NULL;
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_get_root_path(char **ret_path) {
+        if (ret_path) {
+                *ret_path = strdup("/");
+                if (!*ret_path)
+                        return -ENOMEM;
+        }
+        return 1;
+}
+
+int cg_shift_path(const char *cgroup, const char *root, const char **ret_shifted) {
+        if (ret_shifted)
+                *ret_shifted = cgroup;
+        return 0;
+}
+
+int cg_pid_get_path_shifted(pid_t pid, const char *root, char **ret_cgroup) {
+        if (ret_cgroup)
+                *ret_cgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_path_decode_unit(const char *cgroup, char **ret_unit) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_unit_full(const char *path, char **ret_unit, char **ret_subgroup) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        if (ret_subgroup)
+                *ret_subgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_unit_path(const char *path, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_unit_full(pid_t pid, char **ret_unit, char **ret_subgroup) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        if (ret_subgroup)
+                *ret_subgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_unit_full(const PidRef *pidref, char **ret_unit, char **ret_subgroup) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        if (ret_subgroup)
+                *ret_subgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_user_unit_full(const char *path, char **ret_unit, char **ret_subgroup) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        if (ret_subgroup)
+                *ret_subgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_user_unit_full(pid_t pid, char **ret_unit, char **ret_subgroup) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        if (ret_subgroup)
+                *ret_subgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_user_unit_full(const PidRef *pidref, char **ret_unit, char **ret_subgroup) {
+        if (ret_unit)
+                *ret_unit = NULL;
+        if (ret_subgroup)
+                *ret_subgroup = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_machine_name(const char *path, char **ret_machine) {
+        if (ret_machine)
+                *ret_machine = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_machine_name(pid_t pid, char **ret_machine) {
+        if (ret_machine)
+                *ret_machine = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_session(const char *path, char **ret_session) {
+        if (ret_session)
+                *ret_session = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_session(pid_t pid, char **ret_session) {
+        if (ret_session)
+                *ret_session = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_session(const PidRef *pidref, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_owner_uid(const char *path, uid_t *ret_uid) {
+        if (ret_uid)
+                *ret_uid = UID_INVALID;
+        return -ENODATA;
+}
+
+int cg_pid_get_owner_uid(pid_t pid, uid_t *ret_uid) {
+        if (ret_uid)
+                *ret_uid = UID_INVALID;
+        return -ENODATA;
+}
+
+int cg_pidref_get_owner_uid(const PidRef *pidref, uid_t *ret) {
+        if (ret)
+                *ret = UID_INVALID;
+        return -ENODATA;
+}
+
+int cg_path_get_slice(const char *p, char **ret_slice) {
+        if (ret_slice)
+                *ret_slice = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_slice(pid_t pid, char **ret_slice) {
+        if (ret_slice)
+                *ret_slice = NULL;
+        return -ENODATA;
+}
+
+int cg_path_get_user_slice(const char *p, char **ret_slice) {
+        if (ret_slice)
+                *ret_slice = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_user_slice(pid_t pid, char **ret_slice) {
+        if (ret_slice)
+                *ret_slice = NULL;
+        return -ENODATA;
+}
+
+bool cg_needs_escape(const char *p) {
+        return false;
+}
+
+int cg_escape(const char *p, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+char* cg_unescape(const char *p) {
+        return (char*) p;
+}
+
+int cg_slice_to_path(const char *unit, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_is_threaded(const char *path) {
+        return false;
+}
+
+int cg_set_attribute(const char *path, const char *attribute, const char *value) {
+        return 0;
+}
+
+int cg_get_attribute(const char *path, const char *attribute, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return -ENODATA;
+}
+
+int cg_get_attribute_as_uint64(const char *path, const char *attribute, uint64_t *ret) {
+        if (ret)
+                *ret = UINT64_MAX;
+        return -ENODATA;
+}
+
+int cg_get_attribute_as_bool(const char *path, const char *attribute) {
+        return -ENODATA;
+}
+
+int cg_get_owner(const char *path, uid_t *ret_uid) {
+        if (ret_uid)
+                *ret_uid = UID_INVALID;
+        return -ENODATA;
+}
+
+int cg_get_keyed_attribute(
+                const char *path,
+                const char *attribute,
+                char * const *keys,
+                char **values) {
+        return -ENODATA;
+}
+
+int cg_get_keyed_attribute_uint64(const char *path, const char *attribute, const char *key, uint64_t *ret) {
+        if (ret)
+                *ret = UINT64_MAX;
+        return -ENODATA;
+}
+
+int cg_mask_to_string(CGroupMask mask, char **ret) {
+        if (ret)
+                *ret = NULL;
+        return 0;
+}
+
+int cg_mask_from_string(const char *s, CGroupMask *ret) {
+        if (ret)
+                *ret = 0;
+        return 0;
+}
+
+int cg_mask_supported_subtree(const char *root, CGroupMask *ret) {
+        if (ret)
+                *ret = 0;
+        return 0;
+}
+
+int cg_mask_supported(CGroupMask *ret) {
+        if (ret)
+                *ret = 0;
+        return 0;
+}
+
+int cg_is_delegated(const char *path) {
+        return false;
+}
+
+int cg_is_delegated_fd(int fd) {
+        return false;
+}
+
+int cg_has_coredump_receive(const char *path) {
+        return false;
+}
+
+#endif /* ENABLE_CGROUP */
