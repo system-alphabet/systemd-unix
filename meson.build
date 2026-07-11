@@ -1738,15 +1738,27 @@ public_programs = []
 dbus_programs = []
 
 # This is similar to system_includes below, but for passing custom_target().
-system_include_args = [
-        '-isystem', meson.project_build_root()  / 'src/include/override',
-        '-isystem', meson.project_source_root() / 'src/include/override',
-        '-isystem', meson.project_build_root()  / 'src/include/uapi',
-        '-isystem', meson.project_source_root() / 'src/include/uapi',
+system_include_args = []
+
+system_includes = []
+
+libc_include_dir = 'src/include' / get_option('libc')
+system_include_args += [
+        '-isystem', meson.project_build_root()  / libc_include_dir,
+        '-isystem', meson.project_source_root() / libc_include_dir,
 ]
 
-system_includes = [
-        include_directories(
+system_includes += include_directories(libc_include_dir, is_system : true)
+
+if get_option('libc') != 'bsd'
+        system_include_args += [
+                '-isystem', meson.project_build_root()  / 'src/include/override',
+                '-isystem', meson.project_source_root() / 'src/include/override',
+                '-isystem', meson.project_build_root()  / 'src/include/uapi',
+                '-isystem', meson.project_source_root() / 'src/include/uapi',
+        ]
+
+        system_includes += include_directories(
                 # gcc(1) says
                 # "Directories specified with -isystem options are scanned in left-to-right order",
                 # and meson puts the directories in the reversed order. Hence, a directory with a lower
@@ -1754,16 +1766,8 @@ system_includes = [
                 'src/include/uapi',
                 'src/include/override',
                 is_system : true,
-        ),
-]
-
-libc_include_dir = 'src/include' / get_option('libc')
-system_include_args = [
-        '-isystem', meson.project_build_root()  / libc_include_dir,
-        '-isystem', meson.project_source_root() / libc_include_dir,
-] + system_include_args
-
-system_includes += include_directories(libc_include_dir, is_system : true)
+        )
+endif
 
 basic_includes = [
         include_directories(

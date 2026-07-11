@@ -13,6 +13,16 @@
 #include <pthread.h>
 #include <signal.h>
 
+#ifndef CLOCK_BOOTTIME
+#define CLOCK_BOOTTIME CLOCK_MONOTONIC
+#endif
+#ifndef CLOCK_REALTIME_ALARM
+#define CLOCK_REALTIME_ALARM CLOCK_REALTIME
+#endif
+#ifndef CLOCK_BOOTTIME_ALARM
+#define CLOCK_BOOTTIME_ALARM CLOCK_MONOTONIC
+#endif
+
 #define MAX_TIMER_FDS 128
 
 struct timerfd_info {

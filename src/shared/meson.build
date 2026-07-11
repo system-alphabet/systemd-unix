@@ -73,7 +73,6 @@ shared_sources = files(
         'efi-loader.c',
         'elf-util.c',
         'enable-mempool.c',
-        'ethtool-util.c',
         'exec-util.c',
         'exit-status.c',
         'extension-util.c',
@@ -302,57 +301,74 @@ if conf.get('HAVE_LIBBPF') == 1
         shared_sources += files('bpf-link.c')
 endif
 
-generate_ip_protocol_list = files('generate-ip-protocol-list.sh')
-ip_protocol_list_txt = custom_target(
-        input : [generate_ip_protocol_list, ipproto_sources],
-        output : 'ip-protocol-list.txt',
-        command : [env, 'bash', generate_ip_protocol_list, cpp, system_include_args],
-        capture : true)
+        generate_ip_protocol_list = files('generate-ip-protocol-list.sh')
 
-gperf_file = custom_target(
-        input : ip_protocol_list_txt,
-        output : 'ip-protocol-from-name.gperf',
-        command : [generate_gperfs, 'ip_protocol', 'IPPROTO_', '@INPUT@', '<netinet/in.h>'],
-        capture : true)
+        # On BSD, use the native <netinet/in.h> from the system instead of the Linux
+        # UAPI wrapper in override/ so that IPPROTO_* constants come from the BSD headers.
+        if get_option('libc') == 'bsd'
+                ipproto_include_args = []
+                foreach arg : system_include_args
+                        if not arg.contains('override') and not arg.contains('uapi')
+                                ipproto_include_args += arg
+                        endif
+                endforeach
+        else
+                ipproto_include_args = system_include_args
+        endif
 
-target1 = custom_target(
-        input : gperf_file,
-        output : 'ip-protocol-from-name.inc',
-        command : [gperf,
-                   '-L', 'ANSI-C', '-t', '--ignore-case',
-                   '-N', 'lookup_ip_protocol',
-                   '-H', 'hash_ip_protocol_name',
-                   '-p', '-C',
-                   '@INPUT@'],
-        capture : true)
+        ip_protocol_list_txt = custom_target(
+                input : [generate_ip_protocol_list, ipproto_sources],
+                output : 'ip-protocol-list.txt',
+                command : [env, 'bash', generate_ip_protocol_list, cpp, ipproto_include_args],
+                capture : true)
 
-awkscript = 'ip-protocol-to-name.awk'
-target2 = custom_target(
-        input : [awkscript, ip_protocol_list_txt],
-        output : 'ip-protocol-to-name.inc',
-        command : [awk, '-f', '@INPUT0@', '@INPUT1@'],
-        capture : true)
+        gperf_file = custom_target(
+                input : ip_protocol_list_txt,
+                output : 'ip-protocol-from-name.gperf',
+                command : [generate_gperfs, 'ip_protocol', 'IPPROTO_', '@INPUT@', '<netinet/in.h>'],
+                capture : true)
 
-generated_sources += [target1, target2]
-shared_sources += [target1, target2]
+        target1 = custom_target(
+                input : gperf_file,
+                output : 'ip-protocol-from-name.inc',
+                command : [gperf,
+                           '-L', 'ANSI-C', '-t', '--ignore-case',
+                           '-N', 'lookup_ip_protocol',
+                           '-H', 'hash_ip_protocol_name',
+                           '-p', '-C',
+                           '@INPUT@'],
+                capture : true)
 
-ethtool_link_mode_py = files('ethtool-link-mode.py')
-ethtool_link_mode_inc = custom_target(
-        input : [ethtool_link_mode_py, ethtool_link_mode_sources],
-        output : 'ethtool-link-mode.inc',
-        command : [python, ethtool_link_mode_py, '--header', cpp, system_include_args],
-        capture : true)
+        awkscript = 'ip-protocol-to-name.awk'
+        target2 = custom_target(
+                input : [awkscript, ip_protocol_list_txt],
+                output : 'ip-protocol-to-name.inc',
+                command : [awk, '-f', '@INPUT0@', '@INPUT1@'],
+                capture : true)
 
-generated_sources += ethtool_link_mode_inc
-shared_sources += ethtool_link_mode_inc
-sources += shared_sources
+        generated_sources += [target1, target2]
+        shared_sources += [target1, target2]
 
-ethtool_link_mode_xml = custom_target(
-        input : [ethtool_link_mode_py, ethtool_link_mode_sources],
-        output : 'ethtool-link-mode.xml',
-        command : [python, ethtool_link_mode_py, '--xml', cpp, system_include_args],
-        capture : true)
-man_page_depends += ethtool_link_mode_xml
+        if need_linux_uapi
+                shared_sources += files('ethtool-util.c')
+
+                ethtool_link_mode_py = files('ethtool-link-mode.py')
+                ethtool_link_mode_inc = custom_target(
+                        input : [ethtool_link_mode_py, ethtool_link_mode_sources],
+                        output : 'ethtool-link-mode.inc',
+                        command : [python, ethtool_link_mode_py, '--header', cpp, system_include_args],
+                        capture : true)
+
+                generated_sources += ethtool_link_mode_inc
+                shared_sources += ethtool_link_mode_inc
+
+                ethtool_link_mode_xml = custom_target(
+                        input : [ethtool_link_mode_py, ethtool_link_mode_sources],
+                        output : 'ethtool-link-mode.xml',
+                        command : [python, ethtool_link_mode_py, '--xml', cpp, system_include_args],
+                        capture : true)
+                man_page_depends += ethtool_link_mode_xml
+        endif
 
 dns_type_list_txt = custom_target(
         input : ['generate-dns_type-list.sed', 'dns-type.h'],

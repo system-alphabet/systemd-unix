@@ -60,8 +60,16 @@ struct unix_diag_msg;
 
 /* To forward declare FILE and DIR, we have to declare the internal struct names for them. Since these are
  * used for C++ symbol name mangling, they're effectively part of the ABI and won't actually change. */
+#ifdef __linux__
 typedef struct _IO_FILE FILE;
+#else
+#include <stdio.h>
+#endif
+#ifdef __linux__
 typedef struct __dirstream DIR;
+#else
+#include <dirent.h>
+#endif
 
 /* 3rd-party library forward declarations */
 
@@ -140,14 +148,22 @@ typedef struct SocketAddress SocketAddress;
  * having to include the full header that provides these constants. */
 
 /* glibc defines AT_FDCWD as -100, but musl defines it as (-100). */
+#ifndef AT_FDCWD
 #ifdef __GLIBC__
 #define AT_FDCWD                -100
 #else
 #define AT_FDCWD                (-100)
 #endif
+#endif
+#ifndef AT_EMPTY_PATH
 #define AT_EMPTY_PATH           0x1000
+#endif
+#ifndef AT_SYMLINK_FOLLOW
 #define AT_SYMLINK_FOLLOW       0x400
+#endif
+#ifndef AT_SYMLINK_NOFOLLOW
 #define AT_SYMLINK_NOFOLLOW     0x100
+#endif
 
 #define MODE_INVALID            ((mode_t) -1)
 

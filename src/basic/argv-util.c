@@ -3,7 +3,9 @@
 #include <sched.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 
 #include "argv-util.h"
 #include "capability-util.h"
@@ -95,6 +97,7 @@ bool argv_looks_like_help(int argc, char **argv) {
                 strv_contains(l, "-h");
 }
 
+#ifdef __linux__
 static int update_argv(const char name[], size_t l) {
         static int can_do = -1;
         int r;
@@ -179,6 +182,7 @@ static int update_argv(const char name[], size_t l) {
         can_do = true;
         return 0;
 }
+#endif /* __linux__ */
 
 int rename_process_full(const char *comm, const char *invocation) {
         bool truncated = false;
@@ -202,12 +206,14 @@ int rename_process_full(const char *comm, const char *invocation) {
 
         size_t l = strlen(comm);
 
+#ifdef __linux__
         /* First step, change the comm field. The main thread's comm is identical to the process comm. This means we
          * can use PR_SET_NAME, which sets the thread name for the calling thread. */
         if (prctl(PR_SET_NAME, comm) < 0)
                 log_debug_errno(errno, "PR_SET_NAME failed: %m");
         if (l >= TASK_COMM_LEN) /* Linux userspace process names can be 15 chars at max */
                 truncated = true;
+#endif
 
         /* If nothing specified, fall back to comm. */
         if (isempty(invocation))
@@ -215,6 +221,7 @@ int rename_process_full(const char *comm, const char *invocation) {
 
         l = strlen(invocation);
 
+#ifdef __linux__
         /* Second step, change glibc's ID of the process name. */
         if (program_invocation_name) {
                 size_t k;
@@ -228,11 +235,14 @@ int rename_process_full(const char *comm, const char *invocation) {
                 char *p = strrchr(program_invocation_name, '/');
                 program_invocation_short_name = p ? p + 1 : program_invocation_name;
         }
+#endif
 
+#ifdef __linux__
         /* Third step, completely replace the argv[] array the kernel maintains for us. This requires privileges, but
          * has the advantage that the argv[] array is exactly what we want it to be, and not filled up with zeros at
          * the end. This is the best option for changing /proc/self/cmdline. */
         (void) update_argv(invocation, l);
+#endif
 
         /* Fourth step: in all cases we'll also update the original argv[], so that our own code gets it right too if
          * it still looks here */

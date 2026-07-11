@@ -7,15 +7,12 @@ basic_sources = files(
         'ansi-color.c',
         'architecture.c',
         'argv-util.c',
-        'arphrd-util.c',
         'assert-util.c',
         'audit-util.c',
         'btrfs-util.c',
         'build.c',
         'build-path.c',
         'bus-label.c',
-        'capability-list.c',
-        'capability-util.c',
         'capsule-util.c',
         'cgroup-util.c',
         'chase.c',
@@ -38,7 +35,6 @@ basic_sources = files(
         'fd-util.c',
         'fiber-ops.c',
         'fileio.c',
-        'filesystems.c',
         'format-ifname.c',
         'format-util.c',
         'fs-util.c',
@@ -122,6 +118,10 @@ basic_sources = files(
         'xattr-util.c',
 )
 
+# On BSD, capability and arphrd (and statx) are Linux-specific and should be
+# skipped. The source files that depend on these generated lists are also excluded below.
+need_linux_uapi = get_option('libc') != 'bsd'
+
 sources += basic_sources
 
 generated_gperf_headers = []
@@ -134,6 +134,11 @@ foreach item : [
         ['statx-mask',      statx_sources                                            ],
         ['statx-attribute', statx_sources                                            ],
 ]
+
+        # Skip Linux-specific lists when building for BSD (no linux/uapi headers)
+        if not need_linux_uapi and item[0] in ['arphrd', 'capability', 'statx-mask', 'statx-attribute']
+                continue
+        endif
 
         generate_list = files('generate-@0@-list.sh'.format(item[0]))
         list_txt = custom_target(
@@ -178,33 +183,45 @@ basic_sources += generated_gperf_headers
 
 ############################################################
 
-filesystem_sets_py = files('filesystem-sets.py')
-filesystem_sets_c = custom_target(
-        output : 'filesystem-sets.c',
-        command : [filesystem_sets_py,
-                   'fs-type-to-string',
-                   'filesystem-sets',
-                   'fs-in-group'],
-        capture : true)
+if need_linux_uapi
+        filesystem_sets_py = files('filesystem-sets.py')
+        filesystem_sets_c = custom_target(
+                output : 'filesystem-sets.c',
+                command : [filesystem_sets_py,
+                           'fs-type-to-string',
+                           'filesystem-sets',
+                           'fs-in-group'],
+                capture : true)
 
-filesystems_gperf_gperf = custom_target(
-        output : 'filesystems-gperf.gperf',
-        command : [filesystem_sets_py,
-                   'gperf'],
-        capture : true)
+        filesystems_gperf_gperf = custom_target(
+                output : 'filesystems-gperf.gperf',
+                command : [filesystem_sets_py,
+                           'gperf'],
+                capture : true)
 
-filesystems_gperf_h = custom_target(
-        input : filesystems_gperf_gperf,
-        output : 'filesystems-gperf.h',
-        command : [gperf, '@INPUT@', '--output-file', '@OUTPUT@'])
+        filesystems_gperf_h = custom_target(
+                input : filesystems_gperf_gperf,
+                output : 'filesystems-gperf.h',
+                command : [gperf, '@INPUT@', '--output-file', '@OUTPUT@'])
 
-generated_sources += [filesystem_sets_c, filesystems_gperf_gperf, filesystems_gperf_h]
-basic_sources += [filesystem_sets_c, filesystems_gperf_h]
+        generated_sources += [filesystem_sets_c, filesystems_gperf_gperf, filesystems_gperf_h]
+        basic_sources += [filesystem_sets_c, filesystems_gperf_h]
 
-test('kernel-filesystem-magics',
-     filesystem_sets_py,
-     args : ['check'],
-     env : ['CPP=@0@'.format(cpp)])
+        test('kernel-filesystem-magics',
+             filesystem_sets_py,
+             args : ['check'],
+             env : ['CPP=@0@'.format(cpp)])
+endif
+
+# Linux-specific source files that shouldn't be compiled on BSD
+if need_linux_uapi
+        basic_sources += files(
+                'arphrd-util.c',
+                'capability-list.c',
+                'capability-util.c',
+                'filesystems.c',
+        )
+endif
 
 libbasic_static = static_library(
         'basic',

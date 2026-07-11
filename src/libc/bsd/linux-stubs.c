@@ -11,17 +11,13 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <signal.h>
-#include <sys/quota.h>
-#include <sys/bpf.h>
-#include <sys/mount.h>
-#include <sys/mempolicy.h>
 #include <sys/stat.h>
-#include <sys/kcmp.h>
-#include <sys/kexec.h>
 
+#ifdef __linux__
 /* Linux-specific structs needed for shim declarations */
 struct open_how;
 struct mount_attr;
+union bpf_attr;
 
 /* bpf */
 int bpf_shim(int cmd, union bpf_attr *attr, size_t size) {
@@ -139,3 +135,4 @@ int kexec_file_load_shim(int kernel_fd, int initrd_fd, unsigned long cmdline_len
         (void)kernel_fd; (void)initrd_fd; (void)cmdline_len; (void)cmdline_p; (void)flags;
         return errno = ENOSYS, -1;
 }
+#endif /* __linux__ */
