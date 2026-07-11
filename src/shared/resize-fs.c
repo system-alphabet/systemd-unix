@@ -1,11 +1,20 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
-#include <linux/btrfs.h>
 #include <linux/fs.h>
 #include <linux/magic.h>
 #include <linux/xfs.h>
 #include <sys/ioctl.h>
 #include <sys/vfs.h>
+
+/* Local definitions to avoid dependency on <linux/btrfs.h>. These are only used in
+ * the btrfs code path (which is dead on systems without btrfs), so only the types
+ * and constants need to be compile-time correct. */
+#define BTRFS_PATH_NAME_MAX 4087
+struct btrfs_ioctl_vol_args {
+        int64_t fd;
+        char name[BTRFS_PATH_NAME_MAX + 1];
+};
+#define BTRFS_IOC_RESIZE _IOW(0x94, 3, struct btrfs_ioctl_vol_args)
 
 #include "resize-fs.h"
 #include "stat-util.h"

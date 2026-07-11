@@ -247,10 +247,6 @@ executables += [
                 'conditions' : ['ENABLE_EFI'],
         },
         test_template + {
-                'sources' : files('test-btrfs.c'),
-                'timeout' : 120,
-        },
-        test_template + {
                 'sources' : files('test-chase-manual.c'),
                 'type' : 'manual',
         },

@@ -65,10 +65,7 @@ endforeach
 rules_in = [
         ['50-udev-default.rules'],
         ['60-persistent-storage.rules'],
-        ['64-btrfs.rules'],
         ['99-systemd.rules'],
-
-
 
         ['90-vconsole.rules',  conf.get('ENABLE_VCONSOLE') == 1],
 ]

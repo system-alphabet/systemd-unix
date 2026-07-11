@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include <fcntl.h>
-#include <linux/btrfs.h>
 #include <linux/fsverity.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -14,6 +13,20 @@
 #include "alloc-util.h"
 #include "btrfs-util.h"
 #include "chattr-util.h"
+
+#ifndef FICLONE
+#define FICLONE _IOW(0x94, 9, int)
+#endif
+
+#ifndef FICLONERANGE
+struct file_clone_range {
+        int64_t src_fd;
+        uint64_t src_offset;
+        uint64_t src_length;
+        uint64_t dest_offset;
+};
+#define FICLONERANGE _IOW(0x94, 13, struct file_clone_range)
+#endif
 #include "copy.h"
 #include "dirent-util.h"
 #include "errno-util.h"
@@ -1713,14 +1726,8 @@ int reflink(int infd, int outfd) {
         if (r < 0)
                 return r;
 
-        /* FICLONE was introduced in Linux 4.5 but it uses the same number as BTRFS_IOC_CLONE introduced earlier */
-
-        assert_cc(FICLONE == BTRFS_IOC_CLONE);
-
         return RET_NERRNO(ioctl(outfd, FICLONE, infd));
 }
-
-assert_cc(sizeof(struct file_clone_range) == sizeof(struct btrfs_ioctl_clone_range_args));
 
 int reflink_range(int infd, uint64_t in_offset, int outfd, uint64_t out_offset, uint64_t sz) {
         struct file_clone_range args = {
@@ -1743,8 +1750,6 @@ int reflink_range(int infd, uint64_t in_offset, int outfd, uint64_t out_offset, 
         r = fd_verify_regular(outfd);
         if (r < 0)
                 return r;
-
-        assert_cc(FICLONERANGE == BTRFS_IOC_CLONE_RANGE);
 
         return RET_NERRNO(ioctl(outfd, FICLONERANGE, &args));
 }

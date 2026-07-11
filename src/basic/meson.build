@@ -9,7 +9,6 @@ basic_sources = files(
         'argv-util.c',
         'assert-util.c',
         'audit-util.c',
-        'btrfs-util.c',
         'build.c',
         'build-path.c',
         'bus-label.c',

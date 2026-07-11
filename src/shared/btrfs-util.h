@@ -1,10 +1,14 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
-#include "sd-id128.h"
+#include <errno.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
+#include "sd-id128.h"
 #include "shared-forward.h"
 
+#include "copy.h"
 #include "../basic/btrfs-util.h"      /* IWYU pragma: export */
 
 typedef struct BtrfsSubvolInfo {
@@ -42,101 +46,205 @@ typedef enum BtrfsRemoveFlags {
         BTRFS_REMOVE_QUOTA     = 1 << 1,
 } BtrfsRemoveFlags;
 
-int btrfs_is_subvol_at(int dir_fd, const char *path);
+static inline int btrfs_is_subvol_at(int dir_fd, const char *path) {
+        return 0;
+}
 static inline int btrfs_is_subvol_fd(int fd) {
-        return btrfs_is_subvol_at(fd, NULL);
+        return 0;
 }
 static inline int btrfs_is_subvol(const char *path) {
-        return btrfs_is_subvol_at(AT_FDCWD, path);
+        return 0;
 }
 
-int btrfs_get_block_device_at_full(int dir_fd, const char *path, uint64_t *ret_devid, char **ret_path, dev_t *ret);
+static inline int btrfs_get_block_device_at_full(int dir_fd, const char *path, uint64_t *ret_devid, char **ret_path, dev_t *ret) {
+        return -ENOTTY;
+}
 static inline int btrfs_get_block_device_at(int dir_fd, const char *path, dev_t *ret) {
-        return btrfs_get_block_device_at_full(dir_fd, path, NULL, NULL, ret);
+        return -ENOTTY;
 }
 static inline int btrfs_get_block_device(const char *path, dev_t *ret) {
-        return btrfs_get_block_device_at(AT_FDCWD, path, ret);
+        return -ENOTTY;
 }
 static inline int btrfs_get_block_device_fd(int fd, dev_t *ret) {
-        return btrfs_get_block_device_at(fd, NULL, ret);
+        return -ENOTTY;
 }
 
-int btrfs_defrag_fd(int fd);
-int btrfs_defrag(const char *p);
+static inline int btrfs_defrag_fd(int fd) {
+        return -ENOTTY;
+}
+static inline int btrfs_defrag(const char *p) {
+        return -ENOTTY;
+}
 
-int btrfs_quota_enable_fd(int fd, bool b);
-int btrfs_quota_enable(const char *path, bool b);
+static inline int btrfs_quota_enable_fd(int fd, bool b) {
+        return -ENOTTY;
+}
+static inline int btrfs_quota_enable(const char *path, bool b) {
+        return -ENOTTY;
+}
 
-int btrfs_quota_scan_start(int fd);
-int btrfs_quota_scan_wait(int fd);
-int btrfs_quota_scan_ongoing(int fd);
+static inline int btrfs_quota_scan_start(int fd) {
+        return -ENOTTY;
+}
+static inline int btrfs_quota_scan_wait(int fd) {
+        return -ENOTTY;
+}
+static inline int btrfs_quota_scan_ongoing(int fd) {
+        return false;
+}
 
-int btrfs_subvol_snapshot_at_full(int dir_fdf, const char *from, int dir_fdt, const char *to, BtrfsSnapshotFlags flags, copy_progress_path_t progress_path, copy_progress_bytes_t progress_bytes, void *userdata);
+static inline int btrfs_subvol_snapshot_at_full(
+                int dir_fdf, const char *from,
+                int dir_fdt, const char *to,
+                BtrfsSnapshotFlags flags,
+                copy_progress_path_t progress_path,
+                copy_progress_bytes_t progress_bytes,
+                void *userdata) {
+
+        if (!(flags & (BTRFS_SNAPSHOT_FALLBACK_COPY | BTRFS_SNAPSHOT_FALLBACK_DIRECTORY)))
+                return -ENOTTY;
+
+        CopyFlags copy_flags = COPY_REFLINK | COPY_SAME_MOUNT | COPY_HARDLINKS | COPY_ALL_XATTRS |
+                (FLAGS_SET(flags, BTRFS_SNAPSHOT_SIGINT) ? COPY_SIGINT : 0) |
+                (FLAGS_SET(flags, BTRFS_SNAPSHOT_SIGTERM) ? COPY_SIGTERM : 0);
+
+        return copy_tree_at_full(dir_fdf, from, dir_fdt, to,
+                                 UID_INVALID, UID_INVALID, copy_flags,
+                                 NULL, NULL, progress_path, progress_bytes, userdata);
+}
 static inline int btrfs_subvol_snapshot_at(int dir_fdf, const char *from, int dir_fdt, const char *to, BtrfsSnapshotFlags flags) {
         return btrfs_subvol_snapshot_at_full(dir_fdf, from, dir_fdt, to, flags, NULL, NULL, NULL);
 }
 
-int btrfs_subvol_remove_at(int dir_fd, const char *path, BtrfsRemoveFlags flags);
+static inline int btrfs_subvol_remove_at(int dir_fd, const char *path, BtrfsRemoveFlags flags) {
+        return -ENOTTY;
+}
 static inline int btrfs_subvol_remove(const char *path, BtrfsRemoveFlags flags) {
-        return btrfs_subvol_remove_at(AT_FDCWD, path, flags);
+        return -ENOTTY;
 }
 
-int btrfs_subvol_set_read_only_at(int dir_fd, const char *path, bool b);
+static inline int btrfs_subvol_set_read_only_at(int dir_fd, const char *path, bool b) {
+        return -ENOTTY;
+}
 static inline int btrfs_subvol_set_read_only_fd(int fd, bool b) {
-        return btrfs_subvol_set_read_only_at(fd, NULL, b);
+        return -ENOTTY;
 }
 static inline int btrfs_subvol_set_read_only(const char *path, bool b) {
-        return btrfs_subvol_set_read_only_at(AT_FDCWD, path, b);
+        return -ENOTTY;
 }
 
-int btrfs_subvol_get_read_only_fd(int fd);
+static inline int btrfs_subvol_get_read_only_fd(int fd) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_get_id(int fd, const char *subvolume, uint64_t *ret);
-int btrfs_subvol_get_id_fd(int fd, uint64_t *ret);
-int btrfs_subvol_get_parent(int fd, uint64_t subvol_id, uint64_t *ret);
+static inline int btrfs_subvol_get_id(int fd, const char *subvolume, uint64_t *ret) {
+        return -ENOTTY;
+}
+static inline int btrfs_subvol_get_id_fd(int fd, uint64_t *ret) {
+        return -ENOTTY;
+}
+static inline int btrfs_subvol_get_parent(int fd, uint64_t subvol_id, uint64_t *ret) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_get_info_fd(int fd, uint64_t subvol_id, BtrfsSubvolInfo *ret);
+static inline int btrfs_subvol_get_info_fd(int fd, uint64_t subvol_id, BtrfsSubvolInfo *ret) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_find_subtree_qgroup(int fd, uint64_t subvol_id, uint64_t *ret);
+static inline int btrfs_subvol_find_subtree_qgroup(int fd, uint64_t subvol_id, uint64_t *ret) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_get_subtree_quota(const char *path, uint64_t subvol_id, BtrfsQuotaInfo *ret);
-int btrfs_subvol_get_subtree_quota_fd(int fd, uint64_t subvol_id, BtrfsQuotaInfo *ret);
+static inline int btrfs_subvol_get_subtree_quota(const char *path, uint64_t subvol_id, BtrfsQuotaInfo *ret) {
+        return -ENOTTY;
+}
+static inline int btrfs_subvol_get_subtree_quota_fd(int fd, uint64_t subvol_id, BtrfsQuotaInfo *ret) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_set_subtree_quota_limit(const char *path, uint64_t subvol_id, uint64_t referenced_max);
-int btrfs_subvol_set_subtree_quota_limit_fd(int fd, uint64_t subvol_id, uint64_t referenced_max);
+static inline int btrfs_subvol_set_subtree_quota_limit(const char *path, uint64_t subvol_id, uint64_t referenced_max) {
+        return -ENOTTY;
+}
+static inline int btrfs_subvol_set_subtree_quota_limit_fd(int fd, uint64_t subvol_id, uint64_t referenced_max) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_auto_qgroup_fd(int fd, uint64_t subvol_id, bool insert_intermediary_qgroup);
-int btrfs_subvol_auto_qgroup(const char *path, uint64_t subvol_id, bool create_intermediary_qgroup);
+static inline int btrfs_subvol_auto_qgroup_fd(int fd, uint64_t subvol_id, bool insert_intermediary_qgroup) {
+        return -ENOTTY;
+}
+static inline int btrfs_subvol_auto_qgroup(const char *path, uint64_t subvol_id, bool create_intermediary_qgroup) {
+        return -ENOTTY;
+}
 
-int btrfs_subvol_make_default(const char *path);
+static inline int btrfs_subvol_make_default(const char *path) {
+        return -ENOSYS;
+}
 
-int btrfs_qgroupid_make(uint64_t level, uint64_t id, uint64_t *ret);
-int btrfs_qgroupid_split(uint64_t qgroupid, uint64_t *level, uint64_t *id);
+static inline int btrfs_qgroupid_make(uint64_t level, uint64_t id, uint64_t *ret) {
+        return -ENOTTY;
+}
+static inline int btrfs_qgroupid_split(uint64_t qgroupid, uint64_t *level, uint64_t *id) {
+        return -ENOTTY;
+}
 
-int btrfs_qgroup_create(int fd, uint64_t qgroupid);
-int btrfs_qgroup_destroy(int fd, uint64_t qgroupid);
-int btrfs_qgroup_destroy_recursive(int fd, uint64_t qgroupid);
+static inline int btrfs_qgroup_create(int fd, uint64_t qgroupid) {
+        return -ENOTTY;
+}
+static inline int btrfs_qgroup_destroy(int fd, uint64_t qgroupid) {
+        return -ENOTTY;
+}
+static inline int btrfs_qgroup_destroy_recursive(int fd, uint64_t qgroupid) {
+        return -ENOTTY;
+}
 
-int btrfs_qgroup_set_limit_fd(int fd, uint64_t qgroupid, uint64_t referenced_max);
-int btrfs_qgroup_set_limit(const char *path, uint64_t qgroupid, uint64_t referenced_max);
+static inline int btrfs_qgroup_set_limit_fd(int fd, uint64_t qgroupid, uint64_t referenced_max) {
+        return -ENOTTY;
+}
+static inline int btrfs_qgroup_set_limit(const char *path, uint64_t qgroupid, uint64_t referenced_max) {
+        return -ENOTTY;
+}
 
-int btrfs_qgroup_copy_limits(int fd, uint64_t old_qgroupid, uint64_t new_qgroupid);
+static inline int btrfs_qgroup_copy_limits(int fd, uint64_t old_qgroupid, uint64_t new_qgroupid) {
+        return -ENOTTY;
+}
 
-int btrfs_qgroup_assign(int fd, uint64_t child, uint64_t parent);
-int btrfs_qgroup_unassign(int fd, uint64_t child, uint64_t parent);
+static inline int btrfs_qgroup_assign(int fd, uint64_t child, uint64_t parent) {
+        return -ENOTTY;
+}
+static inline int btrfs_qgroup_unassign(int fd, uint64_t child, uint64_t parent) {
+        return -ENOTTY;
+}
 
-int btrfs_qgroup_find_parents(int fd, uint64_t qgroupid, uint64_t **ret);
+static inline int btrfs_qgroup_find_parents(int fd, uint64_t qgroupid, uint64_t **ret) {
+        return -ENOTTY;
+}
 
-int btrfs_qgroup_get_quota_fd(int fd, uint64_t qgroupid, BtrfsQuotaInfo *ret);
-int btrfs_qgroup_get_quota(const char *path, uint64_t qgroupid, BtrfsQuotaInfo *ret);
+static inline int btrfs_qgroup_get_quota_fd(int fd, uint64_t qgroupid, BtrfsQuotaInfo *ret) {
+        return -ENOTTY;
+}
+static inline int btrfs_qgroup_get_quota(const char *path, uint64_t qgroupid, BtrfsQuotaInfo *ret) {
+        return -ENOTTY;
+}
 
-int btrfs_log_dev_root(int level, int ret, const char *p);
+static inline int btrfs_log_dev_root(int level, int ret, const char *p) {
+        return -ENOTTY;
+}
 
-bool btrfs_might_be_subvol(const struct stat *st) _pure_;
+static inline bool btrfs_might_be_subvol(const struct stat *st) {
+        return false;
+}
 
-int btrfs_forget_device(const char *path);
+static inline int btrfs_forget_device(const char *path) {
+        return -ENOTTY;
+}
 
-int btrfs_get_file_physical_offset_fd(int fd, uint64_t *ret);
+static inline int btrfs_get_file_physical_offset_fd(int fd, uint64_t *ret) {
+        return -ENOTTY;
+}
 
-int btrfs_replace(int fdmntpnt, uint64_t device_id, const char *target);
-int btrfs_resize_max(int fdmntpnt, uint64_t devid);
+static inline int btrfs_replace(int fdmntpnt, uint64_t device_id, const char *target) {
+        return -ENOTTY;
+}
+static inline int btrfs_resize_max(int fdmntpnt, uint64_t devid) {
+        return -ENOTTY;
+}

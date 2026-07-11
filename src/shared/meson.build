@@ -21,7 +21,6 @@ shared_sources = files(
         'bpf-program.c',
         'bpf-util.c',
         'bridge-util.c',
-        'btrfs-util.c',
         'bus-get-properties.c',
         'bus-locator.c',
         'bus-log-control-api.c',
