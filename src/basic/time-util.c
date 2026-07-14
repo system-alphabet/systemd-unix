@@ -34,10 +34,21 @@ static clockid_t map_clock_id(clockid_t c) {
         switch (c) {
 
         case CLOCK_BOOTTIME_ALARM:
+#ifndef __linux__
+                return CLOCK_MONOTONIC;
+#else
                 return CLOCK_BOOTTIME;
+#endif
 
         case CLOCK_REALTIME_ALARM:
                 return CLOCK_REALTIME;
+
+#ifndef __linux__
+        case CLOCK_BOOTTIME:
+                /* On FreeBSD, CLOCK_MONOTONIC already includes suspend time
+                 * (like Linux CLOCK_BOOTTIME), so map it accordingly. */
+                return CLOCK_MONOTONIC;
+#endif
 
         default:
                 return c;

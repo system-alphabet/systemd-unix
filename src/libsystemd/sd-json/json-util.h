@@ -2,6 +2,7 @@
 #pragma once
 
 #include <syslog.h>
+#include <sys/uio.h>
 
 #include "sd-json.h"
 

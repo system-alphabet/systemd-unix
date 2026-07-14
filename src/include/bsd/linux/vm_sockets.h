@@ -9,6 +9,10 @@
 
 #include <stdint.h>
 
+#ifndef VMADDR_PORT_ANY
+#define VMADDR_PORT_ANY          ((unsigned int)-1)
+#endif
+
 #ifndef VMADDR_CID_ANY
 #define VMADDR_CID_ANY           0xFFFFFFFF
 #endif

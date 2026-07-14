@@ -12,8 +12,12 @@
  * Provide struct dirent64 with the same layout so assert_cc checks in
  * dirent-util.h can compile.  Note that FreeBSD's struct dirent uses
  * d_fileno for the inode number, but #defines d_ino as its alias.
+ *
+ * On Linux, <bits/dirent.h> already defines struct dirent64,
+ * so guard this to avoid redefinition.
  */
 
+#ifndef __linux__
 #ifndef HAVE_STRUCT_DIRENT64
 #define HAVE_STRUCT_DIRENT64 1
 
@@ -30,4 +34,5 @@ struct dirent64 {
         unsigned short     __d_pad1;
         char               d_name[256];
 };
+#endif
 #endif

@@ -4,7 +4,12 @@
 #include "basic-forward.h"
 
 /* The head of the linked list. Use this in the structure that shall
- * contain the head of the linked list */
+ * contain the head of the linked list.
+ * Note: some BSD <sys/queue.h> headers define LIST_HEAD with reversed
+ * argument order.  We override any such definition here. */
+#ifdef LIST_HEAD
+#undef LIST_HEAD
+#endif
 #define LIST_HEAD(t,name)                                               \
         t *name
 
@@ -12,6 +17,9 @@
 #define LIST_FIELDS(t,name)                                             \
         t *name##_next, *name##_prev
 
+#ifdef LIST_HEAD_INIT
+#undef LIST_HEAD_INIT
+#endif
 /* Initialize the list's head */
 #define LIST_HEAD_INIT(head)                                            \
         do {                                                            \
@@ -19,6 +27,9 @@
         } while (false)
 
 /* Initialize a list item */
+#ifdef LIST_INIT
+#undef LIST_INIT
+#endif
 #define LIST_INIT(name,item)                                            \
         do {                                                            \
                 typeof(*(item)) *_item = (item);                        \
@@ -47,6 +58,9 @@
         })
 
 /* Remove an item from the list */
+#ifdef LIST_REMOVE
+#undef LIST_REMOVE
+#endif
 #define LIST_REMOVE(name,head,item)                                     \
         ({                                                              \
                 typeof(*(head)) **_head = &(head), *_item = (item);     \
@@ -82,6 +96,9 @@
         })
 
 /* Insert an item after another one (a = where, b = what) */
+#ifdef LIST_INSERT_AFTER
+#undef LIST_INSERT_AFTER
+#endif
 #define LIST_INSERT_AFTER(name,head,a,b)                                \
         ({                                                              \
                 typeof(*(head)) **_head = &(head), *_a = (a), *_b = (b); \
@@ -101,6 +118,9 @@
         })
 
 /* Insert an item before another one (a = where, b = what) */
+#ifdef LIST_INSERT_BEFORE
+#undef LIST_INSERT_BEFORE
+#endif
 #define LIST_INSERT_BEFORE(name,head,a,b)                               \
         ({                                                              \
                 typeof(*(head)) **_head = &(head), *_a = (a), *_b = (b); \
@@ -138,9 +158,15 @@
 /* The type of the iterator 'i' is automatically determined by the type of 'head', and declared in the
  * loop. Hence, do not declare the same variable in the outer scope. Sometimes, we set 'head' through
  * hashmap_get(). In that case, you need to explicitly cast the result. */
+#ifdef LIST_FOREACH_WITH_NEXT
+#undef LIST_FOREACH_WITH_NEXT
+#endif
 #define LIST_FOREACH_WITH_NEXT(name,i,n,head)                           \
         for (typeof(*(head)) *n, *i = (head); i && (n = i->name##_next, true); i = n)
 
+#ifdef LIST_FOREACH
+#undef LIST_FOREACH
+#endif
 #define LIST_FOREACH(name,i,head)                                       \
         LIST_FOREACH_WITH_NEXT(name, i, UNIQ_T(n, UNIQ), head)
 

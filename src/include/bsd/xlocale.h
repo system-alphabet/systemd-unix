@@ -1,10 +1,10 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
-/*
- * FreeBSD provides strtod_l() in <xlocale.h>, but the systemd code
- * does not include <xlocale.h> directly.  Ensure strtod_l is declared
- * by having <stdlib.h> included before pulling in the FreeBSD header.
- */
-#include <stdlib.h>
-#include_next <xlocale.h>
+#include <xlocale/_stdlib.h>
+#include <xlocale/_ctype.h>
+#include <xlocale/_string.h>
+#include <xlocale/_inttypes.h>
+#include <xlocale/_monetary.h>
+#include <xlocale/_time.h>
+#include <xlocale/_wchar.h>
+#include <xlocale/_wctype.h>

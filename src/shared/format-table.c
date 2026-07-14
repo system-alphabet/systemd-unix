@@ -1891,7 +1891,7 @@ static const char* table_data_format(
                 if (d->mode == MODE_INVALID)
                         return table_ersatz_string(t);
 
-                return (d->formatted = asprintf_safe("%04o", d->mode & 07777));
+                return (d->formatted = asprintf_safe("%04o", (unsigned) (d->mode & 07777)));
 
         case TABLE_MODE_INODE_TYPE:
                 if (d->mode == MODE_INVALID)

@@ -764,7 +764,7 @@ static int json_variant_new_stat(sd_json_variant **ret, const struct stat *st) {
         if (!stat_is_set(st))
                 return sd_json_variant_new_null(ret);
 
-        xsprintf(mode, "%04o", st->st_mode & ~S_IFMT);
+        xsprintf(mode, "%04o", (unsigned) (st->st_mode & ~S_IFMT));
 
         return sd_json_buildo(
                         ret,

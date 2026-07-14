@@ -4,6 +4,12 @@
 #include_next <fcntl.h>
 
 #include <linux/openat2.h>
+#include <sys/uio.h>
+
+/* Root of the nsfs filesystem */
+#ifndef FD_NSFS_ROOT
+#define FD_NSFS_ROOT (-10003)
+#endif
 
 /* Linux-specific fcntl commands */
 #ifndef F_DUPFD_QUERY
@@ -52,6 +58,26 @@
 
 /* fallocate() — Linux file space manipulation.  Stub on FreeBSD. */
 int fallocate(int fd, int mode, off_t offset, off_t len);
+
+/* fallocate() mode flags */
+#ifndef FALLOC_FL_KEEP_SIZE
+#define FALLOC_FL_KEEP_SIZE     0x01
+#endif
+#ifndef FALLOC_FL_PUNCH_HOLE
+#define FALLOC_FL_PUNCH_HOLE    0x02
+#endif
+#ifndef FALLOC_FL_COLLAPSE_RANGE
+#define FALLOC_FL_COLLAPSE_RANGE 0x08
+#endif
+#ifndef FALLOC_FL_ZERO_RANGE
+#define FALLOC_FL_ZERO_RANGE    0x10
+#endif
+#ifndef FALLOC_FL_INSERT_RANGE
+#define FALLOC_FL_INSERT_RANGE  0x20
+#endif
+#ifndef FALLOC_FL_UNSHARE_RANGE
+#define FALLOC_FL_UNSHARE_RANGE 0x40
+#endif
 #ifndef RENAME_EXCHANGE
 #define RENAME_EXCHANGE (1 << 1)
 #endif
@@ -114,16 +140,31 @@ int fallocate(int fd, int mode, off_t offset, off_t len);
 int memfd_create(const char *name, unsigned int flags);
 int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, unsigned int flags);
 
-/* Linux name_to_handle_at() — filesystem handle operations */
+/* Linux name_to_handle_at() — filesystem handle operations.
+ * Guarded to avoid redefinition on Linux where <bits/fcntl-linux.h> already provides these. */
+#ifndef __linux__
 struct file_handle {
         unsigned int handle_bytes;
         int handle_type;
         unsigned char f_handle[];
 };
 
+int name_to_handle_at(int dirfd, const char *pathname,
+                      struct file_handle *handle, int *mnt_id, int flags);
+#endif
+
+#ifndef __linux__
+int open_by_handle_at(int mount_fd, struct file_handle *handle, int flags);
+#endif
+
 #ifndef AT_HANDLE_MNT_ID_UNIQUE
 #define AT_HANDLE_MNT_ID_UNIQUE 0x400
 #endif
 
-int name_to_handle_at(int dirfd, const char *pathname,
-                      struct file_handle *handle, int *mnt_id, int flags);
+/* Linux pipe buffer size fcntl operations */
+#ifndef F_GETPIPE_SZ
+#define F_GETPIPE_SZ 1032
+#endif
+#ifndef F_SETPIPE_SZ
+#define F_SETPIPE_SZ 1031
+#endif

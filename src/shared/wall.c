@@ -81,7 +81,11 @@ static int wall_utmp(
 
                 /* It seems that the address field is always set for remote logins. For local logins and
                  * other local entries, we get [0,0,0,0]. */
+#if defined(__FreeBSD__)
+                is_local = true; /* FreeBSD's struct utmpx lacks ut_addr_v6 */
+#else
                 is_local = eqzero(u->ut_addr_v6);
+#endif
 
                 if (!match_tty || match_tty(tty_path, is_local, userdata))
                         RET_GATHER(r, write_to_terminal(tty_path, message));

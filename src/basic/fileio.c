@@ -1694,10 +1694,10 @@ int warn_file_is_world_accessible(const char *filename, struct stat *st, const c
         if (unit)
                 log_syntax(unit, LOG_WARNING, filename, line, 0,
                            "%s has %04o mode that is too permissive, please adjust the ownership and access mode.",
-                           filename, st->st_mode & 07777);
+                           filename, (unsigned) (st->st_mode & 07777));
         else
                 log_warning("%s has %04o mode that is too permissive, please adjust the ownership and access mode.",
-                            filename, st->st_mode & 07777);
+                            filename, (unsigned) (st->st_mode & 07777));
         return 0;
 }
 

@@ -22,8 +22,29 @@
 #ifndef NETLINK_GENERIC
 #define NETLINK_GENERIC         16
 #endif
+#ifndef NETLINK_SOCK_DIAG
+#define NETLINK_SOCK_DIAG       4
+#endif
+#ifndef NETLINK_INET_DIAG
+#define NETLINK_INET_DIAG       NETLINK_SOCK_DIAG
+#endif
+#ifndef NETLINK_NFLOG
+#define NETLINK_NFLOG           5
+#endif
+#ifndef NETLINK_XFRM
+#define NETLINK_XFRM            6
+#endif
+#ifndef NETLINK_IP6_FW
+#define NETLINK_IP6_FW          13
+#endif
+#ifndef NETLINK_DNRTMSG
+#define NETLINK_DNRTMSG         14
+#endif
 #ifndef NETLINK_KOBJECT_UEVENT
 #define NETLINK_KOBJECT_UEVENT  15
+#endif
+#ifndef NETLINK_ECRYPTFS
+#define NETLINK_ECRYPTFS        19
 #endif
 #ifndef NETLINK_AUDIT
 #define NETLINK_AUDIT           9
@@ -80,6 +101,8 @@
 #define NLM_F_EXCL              0x200
 #define NLM_F_CREATE            0x400
 #define NLM_F_APPEND            0x800
+#define NLM_F_ACK_TLVS          0x200
+#define NLM_F_CAPPED            0x100
 
 #define NLMSG_NOOP              0x1
 #define NLMSG_ERROR             0x2
@@ -109,12 +132,6 @@ struct nlmsgerr {
 
 struct nlmsgerr_attrs {
         uint8_t         attrs[];
-};
-
-struct genlmsghdr {
-        uint8_t         cmd;
-        uint8_t         version;
-        uint16_t        reserved;
 };
 
 #define NETLINK_ADD_MEMBERSHIP         1

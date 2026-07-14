@@ -107,22 +107,26 @@ sd_path_sources = files(
 
 ############################################################
 
-sd_netlink_sources = files(
-        'sd-netlink/netlink-genl.c',
-        'sd-netlink/netlink-message-nfnl.c',
-        'sd-netlink/netlink-message-rtnl.c',
-        'sd-netlink/netlink-message.c',
-        'sd-netlink/netlink-slot.c',
-        'sd-netlink/netlink-sock-diag.c',
-        'sd-netlink/netlink-socket.c',
-        'sd-netlink/netlink-types-genl.c',
-        'sd-netlink/netlink-types-nfnl.c',
-        'sd-netlink/netlink-types-rtnl.c',
-        'sd-netlink/netlink-types-sdnl.c',
-        'sd-netlink/netlink-types.c',
-        'sd-netlink/netlink-util.c',
-        'sd-netlink/sd-netlink.c',
-)
+if get_option('libc') == 'bsd'
+        sd_netlink_sources = []
+else
+        sd_netlink_sources = files(
+                'sd-netlink/netlink-genl.c',
+                'sd-netlink/netlink-message-nfnl.c',
+                'sd-netlink/netlink-message-rtnl.c',
+                'sd-netlink/netlink-message.c',
+                'sd-netlink/netlink-slot.c',
+                'sd-netlink/netlink-sock-diag.c',
+                'sd-netlink/netlink-socket.c',
+                'sd-netlink/netlink-types-genl.c',
+                'sd-netlink/netlink-types-nfnl.c',
+                'sd-netlink/netlink-types-rtnl.c',
+                'sd-netlink/netlink-types-sdnl.c',
+                'sd-netlink/netlink-types.c',
+                'sd-netlink/netlink-util.c',
+                'sd-netlink/sd-netlink.c',
+        )
+endif
 
 ############################################################
 
@@ -177,6 +181,10 @@ libsystemd_pc = custom_target(
 
 ############################################################
 
+if get_option('libc') != 'bsd'
+        simple_tests += files('sd-netlink/test-netlink.c')
+endif
+
 simple_tests += files(
         'sd-bus/test-bus-creds.c',
         'sd-bus/test-bus-fiber.c',
@@ -203,7 +211,6 @@ simple_tests += files(
         'sd-journal/test-mmap-cache.c',
         'sd-login/test-login.c',
         'sd-login/test-sd-login.c',
-        'sd-netlink/test-netlink.c',
         'sd-path/test-sd-path.c',
 )
 

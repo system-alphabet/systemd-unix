@@ -10,9 +10,12 @@
 #include_next <net/ethernet.h>
 
 /* Provide Linux-compatible field name for struct ether_addr.
- * FreeBSD uses 'octet' while Linux uses 'ether_addr_octet'. */
+ * FreeBSD uses 'octet' while Linux uses 'ether_addr_octet'.
+ * On Linux, the member is already named ether_addr_octet, so skip. */
+#ifndef __linux__
 #ifndef ether_addr_octet
 #define ether_addr_octet octet
+#endif
 #endif
 
 /* ETH_ALEN is the Linux name for ETHER_ADDR_LEN */

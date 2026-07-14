@@ -67,7 +67,10 @@
 #define STATX_INO_VERSION       0x00010000U
 #endif
 #ifndef STATX_WRITE_ATOMIC
-#define STATX_WRITE_ATOMIC      0x00020000U
+#define STATX_WRITE_ATOMIC      0x00010000U
+#endif
+#ifndef STATX_DIO_READ_ALIGN
+#define STATX_DIO_READ_ALIGN    0x00020000U
 #endif
 #ifndef STATX_ALL
 #define STATX_ALL               0x00000FFF
@@ -101,6 +104,12 @@
 #ifndef STATX_ATTR_DAX
 #define STATX_ATTR_DAX          0x00200000
 #endif
+#ifndef STATX_ATTR_WRITE_ATOMIC
+#define STATX_ATTR_WRITE_ATOMIC 0x00400000
+#endif
+
+/* Guard statx definitions to avoid redefinition on Linux where <linux/stat.h> already provides them. */
+#ifndef __linux__
 
 struct statx_timestamp {
         int64_t  tv_sec;
@@ -138,10 +147,10 @@ struct statx {
         uint64_t                stx_pad[8];
 };
 
-/* The struct statx may be available in FreeBSD's <sys/stat.h> in recent versions.
- * If not, this shim provides it. */
 int statx(int dirfd, const char *pathname, int flags,
           unsigned int mask, struct statx *statxbuf);
+
+#endif /* __linux__ */
 
 /* fchmodat2 — Linux syscall wrapper.  Stub on FreeBSD. */
 int fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags);

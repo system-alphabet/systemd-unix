@@ -27,6 +27,20 @@ int umount_linux_shim(const char *target);
 int umount2_linux_shim(const char *target, int flags);
 #define umount2 umount2_linux_shim
 
+/* Linux mount flags (from <sys/mount.h>). */
+#ifndef MS_RDONLY
+#define MS_RDONLY                       1
+#endif
+#ifndef MS_NOSUID
+#define MS_NOSUID                       2
+#endif
+#ifndef MS_NOEXEC
+#define MS_NOEXEC                       8
+#endif
+#ifndef MS_NODEV
+#define MS_NODEV                        4
+#endif
+
 /* Linux mount propagation flags (from <linux/mount.h>). */
 #ifndef MS_SHARED
 #define MS_SHARED                 (1 << 20)
@@ -51,6 +65,125 @@ int umount2_linux_shim(const char *target, int flags);
 #endif
 #ifndef MS_NOSYMFOLLOW
 #define MS_NOSYMFOLLOW            256
+#endif
+#ifndef MS_BIND
+#define MS_BIND                   4096
+#endif
+#ifndef MS_MOVE
+#define MS_MOVE                   8192
+#endif
+#ifndef MS_REMOUNT
+#define MS_REMOUNT                32
+#endif
+#ifndef MS_NOATIME
+#define MS_NOATIME                1024
+#endif
+#ifndef MS_NODIRATIME
+#define MS_NODIRATIME             2048
+#endif
+#ifndef MS_RELATIME
+#define MS_RELATIME               0x02000000
+#endif
+#ifndef MS_STRICTATIME
+#define MS_STRICTATIME            0x04000000
+#endif
+#ifndef MS_SYNCHRONOUS
+#define MS_SYNCHRONOUS            16
+#endif
+#ifndef MS_MANDLOCK
+#define MS_MANDLOCK               64
+#endif
+#ifndef MS_DIRSYNC
+#define MS_DIRSYNC                128
+#endif
+#ifndef MS_POSIXACL
+#define MS_POSIXACL               (1 << 16)
+#endif
+#ifndef MS_KERNMOUNT
+#define MS_KERNMOUNT              (1 << 22)
+#endif
+#ifndef MS_I_VERSION
+#define MS_I_VERSION              (1 << 23)
+#endif
+#ifndef UMOUNT_NOFOLLOW
+#define UMOUNT_NOFOLLOW           8
+#endif
+
+/* mount_setattr() attributes (struct mount_attr) */
+#ifndef MOUNT_ATTR_RDONLY
+#define MOUNT_ATTR_RDONLY         0x00000001
+#endif
+#ifndef MOUNT_ATTR_NOSUID
+#define MOUNT_ATTR_NOSUID         0x00000002
+#endif
+#ifndef MOUNT_ATTR_NODEV
+#define MOUNT_ATTR_NODEV          0x00000004
+#endif
+#ifndef MOUNT_ATTR_NOEXEC
+#define MOUNT_ATTR_NOEXEC         0x00000008
+#endif
+#ifndef MOUNT_ATTR__ATIME
+#define MOUNT_ATTR__ATIME         0x00000070
+#endif
+#ifndef MOUNT_ATTR_RELATIME
+#define MOUNT_ATTR_RELATIME       0x00000000
+#endif
+#ifndef MOUNT_ATTR_NOATIME
+#define MOUNT_ATTR_NOATIME        0x00000010
+#endif
+#ifndef MOUNT_ATTR_STRICTATIME
+#define MOUNT_ATTR_STRICTATIME    0x00000020
+#endif
+#ifndef MOUNT_ATTR_NODIRATIME
+#define MOUNT_ATTR_NODIRATIME     0x00000080
+#endif
+#ifndef MOUNT_ATTR_NOSYMFOLLOW
+#define MOUNT_ATTR_NOSYMFOLLOW    0x00200000
+#endif
+#ifndef MOUNT_ATTR_SIZE_VER0
+#define MOUNT_ATTR_SIZE_VER0      32
+#endif
+
+/* umount2() flags */
+#ifndef MNT_FORCE
+#define MNT_FORCE                 1
+#endif
+#ifndef MNT_DETACH
+#define MNT_DETACH                2
+#endif
+#ifndef MNT_EXPIRE
+#define MNT_EXPIRE                4
+#endif
+
+/* move_mount() flags */
+#ifndef MOVE_MOUNT_F_SYMLINKS
+#define MOVE_MOUNT_F_SYMLINKS      0x00000001
+#endif
+#ifndef MOVE_MOUNT_F_AUTOMOUNTS
+#define MOVE_MOUNT_F_AUTOMOUNTS    0x00000002
+#endif
+#ifndef MOVE_MOUNT_F_EMPTY_PATH
+#define MOVE_MOUNT_F_EMPTY_PATH    0x00000004
+#endif
+#ifndef MOVE_MOUNT_T_SYMLINKS
+#define MOVE_MOUNT_T_SYMLINKS      0x00000010
+#endif
+#ifndef MOVE_MOUNT_T_AUTOMOUNTS
+#define MOVE_MOUNT_T_AUTOMOUNTS    0x00000020
+#endif
+#ifndef MOVE_MOUNT_T_EMPTY_PATH
+#define MOVE_MOUNT_T_EMPTY_PATH    0x00000040
+#endif
+#ifndef MOVE_MOUNT_SET_GROUP
+#define MOVE_MOUNT_SET_GROUP       0x00000100
+#endif
+#ifndef MOVE_MOUNT_BENEATH
+#define MOVE_MOUNT_BENEATH         0x00000200
+#endif
+
+/* open_tree() flags */
+#ifndef AT_RECURSIVE
+#define AT_RECURSIVE               0x8000
 #endif
 
 /* open_tree() flags */
@@ -144,12 +277,14 @@ int open_tree_shim(int dfd, const char *filename, unsigned flags);
 #define MOUNT_ATTR_IDMAP                0x00100000
 #endif
 
+#ifndef __linux__
 struct mount_attr {
         uint64_t attr_set;
         uint64_t attr_clr;
         uint64_t propagation;
         uint64_t userns_fd;
 };
+#endif
 
 int mount_setattr_shim(int dfd, const char *path, unsigned flags,
                        struct mount_attr *attr, size_t size);

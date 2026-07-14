@@ -1557,10 +1557,10 @@ conf.set10('ENABLE_SYSUPDATED', have2)
 conf.set10('ENABLE_STORAGETM', get_option('storagetm'))
 
 feature = get_option('vmspawn').disable_auto_if(conf.get('BUILD_MODE_DEVELOPER') == 0)
-conf.set10('ENABLE_VMSPAWN', feature.allowed())
+conf.set10('ENABLE_VMSPAWN', feature.allowed() and get_option('libc') != 'bsd')
 
 feature = get_option('nspawn')
-conf.set10('ENABLE_NSPAWN', feature.allowed())
+conf.set10('ENABLE_NSPAWN', feature.allowed() and get_option('libc') != 'bsd')
 
 conf.set10('DEFAULT_MOUNTFSD_TRUSTED_DIRECTORIES', get_option('default-mountfsd-trusted-directories'))
 
@@ -1570,11 +1570,11 @@ foreach tuple : [
                 ['binfmt'],
                 ['compat-mutable-uid-boundaries'],
                 ['compat-sysv-interfaces'],
-                ['coredump'],
+                ['coredump',           get_option('libc') != 'bsd', 'BSD does not support it'],
                 ['efi'],
                 ['environment-d'],
                 ['firstboot'],
-                ['cgroup',          get_option('libc') != 'bsd', 'BSD does not support cgroup'],
+                ['cgroup',          true],
                 ['gshadow',         get_option('libc') != 'musl', 'musl does not support it'],
                 ['hibernate'],
                 ['hwdb'],
@@ -1585,11 +1585,11 @@ foreach tuple : [
                 ['kernel-install'],
                 ['ldconfig'],
                 ['mountfsd'],
-                ['nsresourced'],
+                ['nsresourced',      get_option('libc') != 'bsd', 'BSD does not support it'],
                 ['nss-myhostname',  get_option('libc') != 'musl', 'musl does not support it'],
                 ['nss-systemd',     get_option('libc') != 'musl', 'musl does not support it'],
                 ['oomd'],
-                ['portabled'],
+                ['portabled',        get_option('libc') != 'bsd', 'BSD does not support it'],
                 ['pstore'],
                 ['quotacheck'],
                 ['randomseed'],
@@ -1600,7 +1600,7 @@ foreach tuple : [
                 ['sysusers'],
                 ['tmpfiles'],
 
-                ['utmp',            get_option('libc') != 'musl', 'musl does not support it'],
+                ['utmp',            get_option('libc') != 'musl' and get_option('libc') != 'bsd', 'musl/BSD does not support it'],
                 ['userdb'],
                 ['vconsole'],
                 ['xdg-autostart'],

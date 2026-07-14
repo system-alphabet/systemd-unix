@@ -1,0 +1,5 @@
+const char* statx_attribute_to_name(uint64_t attr) {
+        switch (attr) {
+        default: return NULL;
+        }
+}

@@ -5,8 +5,13 @@
  * Linux <linux/if_arp.h> — ARP protocol hardware type identifiers (ARPHRD_*).
  * FreeBSD provides these in <net/if_arp.h>, but we need to include
  * <sys/socket.h> first to get struct sockaddr definition.
+ *
+ * Note: FreeBSD's <net/if_arp.h> uses BSD-specific types (u_short, u_char)
+ * and uint64_t. Ensure they're available before including it.
  */
 
+#include <sys/types.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <net/if_arp.h>
 

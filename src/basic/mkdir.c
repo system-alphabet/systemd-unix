@@ -68,7 +68,7 @@ int mkdirat_safe_internal(
         if ((st.st_mode & ~mode & 0777) != 0)
                 return log_full_errno(flags & MKDIR_WARN_MODE ? LOG_WARNING : LOG_DEBUG, SYNTHETIC_ERRNO(EEXIST),
                                       "Directory \"%s\" already exists, but has mode %04o that is too permissive (%04o was requested), refusing.",
-                                      path, st.st_mode & 0777, mode);
+                                      path, (unsigned) (st.st_mode & 0777), mode);
 
         if ((uid != UID_INVALID && st.st_uid != uid) ||
             (gid != GID_INVALID && st.st_gid != gid))

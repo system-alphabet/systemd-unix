@@ -18,8 +18,6 @@ shared_sources = files(
         'boot-entry.c',
         'boot-timestamps.c',
         'bootspec.c',
-        'bpf-program.c',
-        'bpf-util.c',
         'bridge-util.c',
         'bus-get-properties.c',
         'bus-locator.c',
@@ -45,7 +43,6 @@ shared_sources = files(
         'compare-operator.c',
         'condition.c',
         'conf-parser.c',
-        'copy.c',
         'coredump-util.c',
         'cpu-set-util.c',
         'creds-util.c',
@@ -56,9 +53,6 @@ shared_sources = files(
         'daemon-util.c',
         'data-fd-util.c',
         'dev-setup.c',
-        'discover-image.c',
-        'dissect-image.c',
-        'dm-util.c',
         'dns-answer.c',
         'dns-configuration.c',
         'dns-domain.c',
@@ -80,7 +74,6 @@ shared_sources = files(
         'fdset.c',
         'fido2-util.c',
         'find-esp.c',
-        'firewall-util.c',
         'firstboot-util.c',
         'fork-notify.c',
         'format-table.c',
@@ -122,12 +115,10 @@ shared_sources = files(
         'libcrypt-util.c',
         'libfido2-util.c',
         'libmount-util.c',
-        'local-addresses.c',
         'locale-setup.c',
         'log-assert-critical.c',
         'logs-show.c',
         'loop-util.c',
-        'loopback-setup.c',
         'lsm-util.c',
         'luo-util.c',
         'machine-bind-user.c',
@@ -145,9 +136,7 @@ shared_sources = files(
         'mount-setup.c',
         'mount-util.c',
         'mstack.c',
-        'net-condition.c',
         'netif-naming-scheme.c',
-        'netif-sriov.c',
         'netif-util.c',
         'notify-recv.c',
         'nsflags.c',
@@ -158,7 +147,6 @@ shared_sources = files(
         'osc-context.c',
         'output-mode.c',
         'pager.c',
-        'pam-util.c',
         'parse-argument.c',
         'parse-helpers.c',
         'password-quality-util-passwdqc.c',
@@ -198,7 +186,6 @@ shared_sources = files(
         'snapshot-util.c',
         'socket-forward.c',
         'socket-label.c',
-        'socket-netlink.c',
         'specifier.c',
         'ssl-util.c',
         'storage-util.c',
@@ -270,7 +257,6 @@ shared_sources = files(
         'wall.c',
         'watchdog.c',
         'web-util.c',
-        'wifi-util.c',
         'xml.c',
 )
 
@@ -298,6 +284,14 @@ endif
 
 if conf.get('HAVE_LIBBPF') == 1
         shared_sources += files('bpf-link.c')
+endif
+
+if get_option('libc') != 'bsd'
+        shared_sources += files('bpf-program.c', 'bpf-util.c', 'copy.c',
+                'dm-util.c', 'dissect-image.c', 'discover-image.c',
+                'firewall-util.c', 'local-addresses.c', 'loopback-setup.c',
+                'net-condition.c', 'netif-sriov.c', 'netif-util.c',
+                'pam-util.c', 'socket-netlink.c', 'wifi-util.c')
 endif
 
         generate_ip_protocol_list = files('generate-ip-protocol-list.sh')

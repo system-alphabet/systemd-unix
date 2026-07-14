@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <netinet/in.h>
+#include <linux/if_ether.h>
 
 #ifndef HAVE_LINUX_IPV6_HDR
 struct ipv6hdr {

@@ -135,7 +135,18 @@ foreach item : [
 ]
 
         # Skip Linux-specific lists when building for BSD (no linux/uapi headers)
-        if not need_linux_uapi and item[0] in ['arphrd', 'capability', 'statx-mask', 'statx-attribute']
+        # For arphrd and capability the source files are also excluded, so we skip entirely.
+        # For statx the source file (stat-util.c) is still compiled, so we provide empty inc files.
+        if not need_linux_uapi and item[0] in ['arphrd', 'capability']
+                continue
+        endif
+        if not need_linux_uapi and item[0] in ['statx-mask', 'statx-attribute']
+                empty_inc = custom_target(
+                        input : '@0@-to-name.inc.in'.format(item[0]),
+                        output : '@0@-to-name.inc'.format(item[0]),
+                        command : ['cp', '@INPUT@', '@OUTPUT@'],
+                        build_by_default : true)
+                generated_gperf_headers += [empty_inc]
                 continue
         endif
 

@@ -30,6 +30,11 @@
 #define NSFS_MAGIC      0x6E736364
 #endif
 
+/* File handle type for nsfs (from <linux/nsfs.h> upstream) */
+#ifndef FILEID_NSFS
+#define FILEID_NSFS     0xf1
+#endif
+
 /* struct nsfs_file_handle (kernel uapi since v6.18) */
 struct nsfs_file_handle {
         uint8_t         pad[8];

@@ -1,0 +1,58 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+#pragma once
+
+#define BATADV_NL_NAME "batadv"
+
+#define BATADV_CMD_GET_MESH            1
+#define BATADV_CMD_GET_HARDIF          2
+#define BATADV_CMD_GET_IFACE           3
+#define BATADV_CMD_GET_ROUTING_ALGOS   4
+#define BATADV_CMD_GET_ORIGINATORS     5
+#define BATADV_CMD_GET_NEIGHBORS       6
+#define BATADV_CMD_GET_GATEWAYS        7
+#define BATADV_CMD_GET_TRANSTABLE_LOCAL  8
+#define BATADV_CMD_GET_BLA_CLAIM       9
+#define BATADV_CMD_GET_BLA_BACKBONE    10
+#define BATADV_CMD_GET_DAT_CACHE       11
+#define BATADV_CMD_GET_MCAST_FLAGS     12
+#define BATADV_CMD_SET_MESH            13
+#define BATADV_CMD_SET_HARDIF          14
+
+#define BATADV_ATTR_UNSPEC               0
+#define BATADV_ATTR_VERSION              1
+#define BATADV_ATTR_ALGO_NAME            2
+#define BATADV_ATTR_MESH_IFINDEX         3
+#define BATADV_ATTR_MESH_IFNAME          4
+#define BATADV_ATTR_HARD_IFINDEX         5
+#define BATADV_ATTR_HARD_IFNAME          6
+#define BATADV_ATTR_MASTER_IFINDEX       7
+#define BATADV_ATTR_MASTER_IFNAME        8
+#define BATADV_ATTR_TTHA                 9
+#define BATADV_ATTR_ORIG_ADDRESS         10
+#define BATADV_ATTR_NEIGH_ADDRESS        11
+#define BATADV_ATTR_TQ                   12
+#define BATADV_ATTR_HARD_IFINDEX         5
+#define BATADV_ATTR_HARD_IFNAME          6
+#define BATADV_ATTR_ACTIVE               13
+#define BATADV_ATTR_ROUTING_ALGO         14
+#define BATADV_ATTR_FRAGMENTATION_ENABLED 15
+#define BATADV_ATTR_GW_BANDWIDTH_DOWN    16
+#define BATADV_ATTR_GW_BANDWIDTH_UP      17
+#define BATADV_ATTR_GW_MODE              18
+#define BATADV_ATTR_GW_SEL_CLASS         19
+#define BATADV_ATTR_HOP_PENALTY           20
+#define BATADV_ATTR_ISOLATION_MARK        21
+#define BATADV_ATTR_ISOLATION_MASK        22
+#define BATADV_ATTR_NETWORK_CODING       23
+#define BATADV_ATTR_ORIG_INTERVAL        24
+#define BATADV_ATTR_ELP_INTERVAL         25
+#define BATADV_ATTR_THROUGHPUT_OVERRIDE  26
+#define BATADV_ATTR_MULTICAST_FANOUT     27
+#define BATADV_ATTR_LOG_LEVEL            28
+#define BATADV_ATTR_AP_ISOLATION         29
+#define BATADV_ATTR_MULTICAST_MODE       30
+#define BATADV_ATTR_BONDING              31
+#define BATADV_ATTR_BRIDGE_LOOP_AVOIDANCE 32
+#define BATADV_ATTR_DISTRIBUTED_ARP_TABLE 33
+#define BATADV_ATTR_MULTICAST_FORCEFLOOD 34
+#define BATADV_ATTR_MESH_ADDRESS         35

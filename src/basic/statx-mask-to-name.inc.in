@@ -1,0 +1,5 @@
+const char* statx_mask_one_to_name(unsigned mask) {
+        switch (mask) {
+        default: return NULL;
+        }
+}

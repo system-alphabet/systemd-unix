@@ -32,6 +32,11 @@
 #define PACKET_FASTROUTE         6
 #endif
 
+/* PACKET_* socket options (SOL_PACKET). */
+#ifndef PACKET_AUXDATA
+#define PACKET_AUXDATA          8
+#endif
+
 struct sockaddr_ll {
         unsigned short sll_family;
         unsigned short sll_protocol;

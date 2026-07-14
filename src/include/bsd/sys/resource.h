@@ -1,40 +1,61 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
-#include_next <sys/resource.h>
-
 /*
- * FreeBSD defines RLIMIT_* with values 0–15 (RLIMIT_PIPEBUF is the last).
- * Linux defines some additional RLIMIT_* constants that overlap those
- * values (RLIMIT_NICE=5, RLIMIT_SIGPENDING=11, etc.).  To avoid duplicate-
- * initializer errors in the rlimit-to-name table, we use non-overlapping
- * high values for the Linux rlimits that would otherwise collide.
+ * BSD shim for <sys/resource.h>.
+ *
+ * FreeBSD and Linux define different RLIMIT_* value sets with overlapping
+ * numbers.  We wrap FreeBSD's <sys/resource.h> and then override the RLIMIT
+ * constants so that Linux code using them (rlimit-util.c et al.) sees the
+ * correct (Linux) values.  The FreeBSD-native RLIMIT constants that have no
+ * Linux counterpart (e.g. RLIMIT_SBSIZE, RLIMIT_NPTS) are undefined here;
+ * they are not used by systemd anyway.
+ *
+ * At runtime, getrlimit()/setrlimit() calls will use Linux-numbered
+ * resources, which FreeBSD's kernel does not understand; those calls will
+ * fail with EINVAL unless a dedicated translation shim is in place.
  */
 
-/* Linux-specific rlimits (none overlap FreeBSD's native range). */
-#ifndef RLIMIT_LOCKS
-#define RLIMIT_LOCKS            10      /* Same on both; 10 = RLIMIT_VMEM on FreeBSD, but both are different. */
+#include_next <sys/resource.h>
+#include <sys/types.h>
+
+/* Undefine FreeBSD constants that would collide with Linux values */
+#ifdef RLIMIT_MEMLOCK
+#undef RLIMIT_MEMLOCK
 #endif
-#ifndef RLIMIT_NICE
-#define RLIMIT_NICE             5       /* Linux 5 = RLIMIT_RSS on FreeBSD — same value, different meaning. */
+#ifdef RLIMIT_NPROC
+#undef RLIMIT_NPROC
 #endif
-#ifndef RLIMIT_SIGPENDING
-#define RLIMIT_SIGPENDING       11      /* Linux 11 = RLIMIT_NPTS on FreeBSD */
+#ifdef RLIMIT_NOFILE
+#undef RLIMIT_NOFILE
 #endif
-#ifndef RLIMIT_MSGQUEUE
-#define RLIMIT_MSGQUEUE         12      /* Linux 12 = RLIMIT_SWAP on FreeBSD */
-#endif
-#ifndef RLIMIT_RTTIME
-#define RLIMIT_RTTIME           15      /* Linux 15 = RLIMIT_PIPEBUF on FreeBSD */
+#ifdef RLIMIT_AS
+#undef RLIMIT_AS
 #endif
 
-/* RLIMIT_NLIMITS — number of rlimit resources.  On FreeBSD the last
- * resource has value 15 (RLIMIT_PIPEBUF), so NLIMITS would be 16.
- * Ensure it covers the native range (0-15). */
-#ifndef RLIMIT_NLIMITS
+/* Now define all Linux RLIMIT_* values */
+#define RLIMIT_CPU              0
+#define RLIMIT_FSIZE            1
+#define RLIMIT_DATA             2
+#define RLIMIT_STACK            3
+#define RLIMIT_CORE             4
+#define RLIMIT_RSS              5
+#define RLIMIT_NPROC            6
+#define RLIMIT_NOFILE           7
+#define RLIMIT_MEMLOCK          8
+#define RLIMIT_AS               9
+#define RLIMIT_LOCKS            10
+#define RLIMIT_SIGPENDING       11
+#define RLIMIT_MSGQUEUE         12
+#define RLIMIT_NICE             13
+#define RLIMIT_RTPRIO           14
+#define RLIMIT_RTTIME           15
 #define RLIMIT_NLIMITS          16
-#endif
 
-/* prlimit — Linux resource limit syscall wrapper. */
+/* prlimit — Linux resource limit syscall wrapper.
+ * On Linux, the system header already provides the declaration with
+ * a different signature (enum __rlimit_resource vs int), so skip. */
+#ifndef __linux__
 int prlimit(pid_t pid, int resource,
             const struct rlimit *new_limit, struct rlimit *old_limit);
+#endif

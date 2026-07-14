@@ -4,7 +4,8 @@
 /* Linux getrandom() flags and /dev/random ioctls.
  * Used by src/basic/random-util.c. */
 
-#include <linux/types.h>
+/* FreeBSD doesn't have <linux/types.h>; provide the needed types locally. */
+typedef unsigned int __u32;
 
 #ifndef GRND_NONBLOCK
 #define GRND_NONBLOCK 0x0001

@@ -123,7 +123,6 @@ simple_tests += files(
         'test-label.c',
         'test-limits-util.c',
         'test-list.c',
-        'test-local-addresses.c',
         'test-locale-util.c',
         'test-lock-util.c',
         'test-log.c',
@@ -216,6 +215,10 @@ simple_tests += files(
         'test-xattr-util.c',
         'test-xml.c',
 )
+
+if get_option('libc') != 'bsd'
+        simple_tests += files('test-local-addresses.c')
+endif
 
 ############################################################
 

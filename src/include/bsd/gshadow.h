@@ -1,18 +1,9 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
-/*
- * Minimal shim for Linux <gshadow.h> on FreeBSD.
- * Provides only the Linux-specific shadow group API types/functions,
- * WITHOUT conflicting with POSIX group functions (<grp.h>).
- */
-
-#include <sys/types.h>
-#include <stdio.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <errno.h>
+#include <stddef.h>
+#include <shadow.h>
 
 struct sgrp {
         char *sg_namp;
@@ -21,13 +12,15 @@ struct sgrp {
         char **sg_mem;
 };
 
-struct sgrp *sgetgrnam(const char *name);
-struct sgrp *sgetgrent(void);
-struct sgrp *fgetgrent(FILE *stream);
-void setsgrent(void);
-void endsgrent(void);
-int putsgrent(const struct sgrp *sg, FILE *stream);
-
-#ifdef __cplusplus
+static inline int getsgnam_r(
+                const char *__name,
+                struct sgrp *__result_buf,
+                char *__buffer,
+                size_t __buflen,
+                struct sgrp **__result) {
+        return EOPNOTSUPP;
 }
-#endif
+
+/* Non-reentrant group shadow functions with stub implementations in misc.c */
+int putsgent(const struct sgrp *sg, FILE *stream);
+struct sgrp *fgetsgent(FILE *stream);

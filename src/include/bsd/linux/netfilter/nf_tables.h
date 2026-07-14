@@ -543,8 +543,91 @@ enum nft_set_desc_attributes {
 };
 #define NFTA_SET_DESC_MAX       (__NFTA_SET_DESC_MAX - 1)
 
+#define NFT_TABLE_MAXNAMELEN    32
+
 #define NFT_SET_MAXANONLEN      16
 #define NFT_SET_MAXSETNAMELEN   64
 #ifndef NFT_NAME_MAXLEN
 #define NFT_NAME_MAXLEN         256
 #endif
+
+/* Table attributes */
+enum nft_table_attributes {
+        NFTA_TABLE_UNSPEC,
+        NFTA_TABLE_NAME,
+        NFTA_TABLE_FLAGS,
+        NFTA_TABLE_USE,
+        NFTA_TABLE_HANDLE,
+        NFTA_TABLE_PAD,
+        NFTA_TABLE_USERDATA,
+        NFTA_TABLE_OWNER,
+        __NFTA_TABLE_MAX,
+};
+#define NFTA_TABLE_MAX          (__NFTA_TABLE_MAX - 1)
+
+/* Chain attributes */
+enum nft_chain_attributes {
+        NFTA_CHAIN_UNSPEC,
+        NFTA_CHAIN_TABLE,
+        NFTA_CHAIN_HANDLE,
+        NFTA_CHAIN_NAME,
+        NFTA_CHAIN_HOOK,
+        NFTA_CHAIN_POLICY,
+        NFTA_CHAIN_USE,
+        NFTA_CHAIN_TYPE,
+        NFTA_CHAIN_COUNTERS,
+        NFTA_CHAIN_PAD,
+        NFTA_CHAIN_FLAGS,
+        NFTA_CHAIN_ID,
+        NFTA_CHAIN_USERDATA,
+        NFTA_CHAIN_USERDATA_MAX,
+        __NFTA_CHAIN_MAX,
+};
+#define NFTA_CHAIN_MAX          (__NFTA_CHAIN_MAX - 1)
+
+/* Meta expression attributes */
+enum nft_meta_attributes {
+        NFTA_META_UNSPEC,
+        NFTA_META_DREG,
+        NFTA_META_KEY,
+        NFTA_META_SREG,
+        __NFTA_META_MAX,
+};
+#define NFTA_META_MAX           (__NFTA_META_MAX - 1)
+
+/* FIB expression attributes */
+enum nft_fib_attributes {
+        NFTA_FIB_UNSPEC,
+        NFTA_FIB_DREG,
+        NFTA_FIB_RESULT,
+        NFTA_FIB_FLAGS,
+        __NFTA_FIB_MAX,
+};
+#define NFTA_FIB_MAX            (__NFTA_FIB_MAX - 1)
+
+enum nft_fib_result {
+        NFT_FIB_RESULT_UNSPEC,
+        NFT_FIB_RESULT_OIF,
+        NFT_FIB_RESULT_OIFNAME,
+        NFT_FIB_RESULT_ADDRTYPE,
+        __NFT_FIB_RESULT_MAX,
+};
+#define NFT_FIB_RESULT_MAX      (__NFT_FIB_RESULT_MAX - 1)
+
+#define NFTA_FIB_F_SADDR        1
+#define NFTA_FIB_F_DADDR        2
+#define NFTA_FIB_F_MARK         4
+#define NFTA_FIB_F_IIF          8
+#define NFTA_FIB_F_OIF          16
+#define NFTA_FIB_F_PRESENT      32
+
+/* Set element list attributes */
+enum nft_set_elem_list_attributes {
+        NFTA_SET_ELEM_LIST_UNSPEC,
+        NFTA_SET_ELEM_LIST_TABLE,
+        NFTA_SET_ELEM_LIST_SET,
+        NFTA_SET_ELEM_LIST_ELEMENTS,
+        NFTA_SET_ELEM_LIST_SET_ID,
+        __NFTA_SET_ELEM_LIST_MAX,
+};
+#define NFTA_SET_ELEM_LIST_MAX  (__NFTA_SET_ELEM_LIST_MAX - 1)

@@ -46,6 +46,23 @@
 #define TCA_STAB                44
 #endif
 
+/* TC_PRIO_* — packet priority values. */
+#ifndef TC_PRIO_BESTEFFORT
+#define TC_PRIO_BESTEFFORT              0
+#endif
+#ifndef TC_PRIO_BULK
+#define TC_PRIO_BULK                    2
+#endif
+#ifndef TC_PRIO_INTERACTIVE_BULK
+#define TC_PRIO_INTERACTIVE_BULK        4
+#endif
+#ifndef TC_PRIO_INTERACTIVE
+#define TC_PRIO_INTERACTIVE             6
+#endif
+#ifndef TC_PRIO_CONTROL
+#define TC_PRIO_CONTROL                 7
+#endif
+
 /* TC_H_MAJ / TC_H_MIN */
 #ifndef TC_H_MAJ_MASK
 #define TC_H_MAJ_MASK   0xFFFF0000

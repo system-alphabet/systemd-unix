@@ -8,9 +8,17 @@
 
 #include <stdint.h>
 #include <sys/ioctl.h>
+#include <linux/falloc.h>
+#include <linux/types.h>
 
 #ifndef BLKGETDISKSEQ
 #define BLKGETDISKSEQ _IO(0x12, 128)
+#endif
+#ifndef BLKROGET
+#define BLKROGET       0x0000125E
+#endif
+#ifndef BLKROSET
+#define BLKROSET       0x0000125D
 #endif
 
 /* Inode flags (FS_IOC_GETFLAGS / FS_IOC_SETFLAGS) */
@@ -52,6 +60,21 @@
 #endif
 #ifndef FS_CASEFOLD_FL
 #define FS_CASEFOLD_FL          0x40000000
+#endif
+#ifndef FS_NOCOMP_FL
+#define FS_NOCOMP_FL            0x00000400
+#endif
+#ifndef FS_EXTENT_FL
+#define FS_EXTENT_FL            0x00080000
+#endif
+#ifndef FS_JOURNAL_DATA_FL
+#define FS_JOURNAL_DATA_FL      0x00004000
+#endif
+#ifndef FS_NOTAIL_FL
+#define FS_NOTAIL_FL            0x00008000
+#endif
+#ifndef FS_TOPDIR_FL
+#define FS_TOPDIR_FL            0x00020000
 #endif
 
 /* FS_XFLAG_* flags for FS_IOC_FSGETXATTR/FSSETXATTR */
@@ -138,6 +161,14 @@ struct fsxattr {
 };
 #endif
 
+/* File handle types for name_to_handle_at / open_by_handle_at */
+#ifndef FILEID_KERNFS
+#define FILEID_KERNFS 0xfe
+#endif
+#ifndef FILEID_NSFS
+#define FILEID_NSFS 0xf1
+#endif
+
 /* Block device ioctls */
 #ifndef BLKSSZGET
 #define BLKSSZGET       0x00001268
@@ -150,4 +181,10 @@ struct fsxattr {
 #endif
 #ifndef BLKZEROOUT
 #define BLKZEROOUT      0x0000127F
+#endif
+#ifndef BLKRRPART
+#define BLKRRPART       _IO(0x12, 95)
+#endif
+#ifndef EXT4_IOC_RESIZE_FS
+#define EXT4_IOC_RESIZE_FS      _IOW('f', 16, __u64)
 #endif

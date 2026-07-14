@@ -95,6 +95,26 @@ typedef int key_serial_t;
 #define KEYCTL_WATCH_KEY                32
 #endif
 
+/* Key permission constants (from linux/keyctl.h / keyutils.h) */
+#ifndef KEY_POS_VIEW
+#define KEY_POS_VIEW     0x01000000
+#endif
+#ifndef KEY_POS_READ
+#define KEY_POS_READ     0x02000000
+#endif
+#ifndef KEY_POS_SEARCH
+#define KEY_POS_SEARCH   0x08000000
+#endif
+#ifndef KEY_USR_VIEW
+#define KEY_USR_VIEW     0x00010000
+#endif
+#ifndef KEY_USR_READ
+#define KEY_USR_READ     0x00020000
+#endif
+#ifndef KEY_USR_SEARCH
+#define KEY_USR_SEARCH   0x00080000
+#endif
+
 /* Special keyring shortcut IDs */
 #ifndef KEY_SPEC_THREAD_KEYRING
 #define KEY_SPEC_THREAD_KEYRING         (-1)

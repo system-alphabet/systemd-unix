@@ -68,15 +68,51 @@
 #ifndef ECHRNG
 #define ECHRNG 218
 #endif
+#ifndef EXFULL
+#define EXFULL 221
+#endif
 #ifndef ENOTUNIQ
 #define ENOTUNIQ 220
+#endif
+#ifndef EREMCHG
+#define EREMCHG 230
+#endif
+#ifndef ENOTNAM
+#define ENOTNAM 231
+#endif
+#ifndef ELNRNG
+#define ELNRNG 232
+#endif
+#ifndef EBADE
+#define EBADE 233
+#endif
+#ifndef EBADRQC
+#define EBADRQC 133
+#endif
+#ifndef EL2HLT
+#define EL2HLT    251
+#endif
+#ifndef EL3HLT
+#define EL3HLT    252
+#endif
+#ifndef EKEYEXPIRED
+#define EKEYEXPIRED 253
+#endif
+#ifndef EKEYREVOKED
+#define EKEYREVOKED 254
+#endif
+#ifndef EHWPOISON
+#define EHWPOISON 255
+#endif
+#ifndef ENAVAIL
+#define ENAVAIL   256
 #endif
 
 /* FreeBSD defines ELAST == EINTEGRITY == 97, which causes duplicate
  * initializer errors in the errno-name table when combined with our
  * Linux errno shims.  Move ELAST past the highest value we define. */
 #undef ELAST
-#define ELAST 219
+#define ELAST 234
 
 /* glibc provides program_invocation_short_name in <errno.h>. */
 extern char *program_invocation_name;

@@ -16,24 +16,46 @@
 #endif
 #endif
 
-/* Linux-specific signal: SIGPWR (power failure) */
+/* Linux-specific signal: SIGPWR (power failure)
+ * FreeBSD uses SIGUSR1=30, so pick an unused number (34). */
 #ifndef SIGPWR
-#define SIGPWR  30
+#define SIGPWR  34
 #endif
 
 /* Linux-specific si_code values for SIGILL */
 #ifndef ILL_BADIADDR
-#define ILL_BADIADDR    (__SI_FAULT - 1)
+#define ILL_BADIADDR    9
 #endif
 
 /* Linux-specific si_code values for SIGFPE */
 #ifndef FPE_FLTUNK
 #define FPE_FLTUNK      14
 #endif
+#ifndef FPE_CONDTRAP
+#define FPE_CONDTRAP    15
+#endif
 
 /* Linux-specific si_code values for SIGSEGV */
 #ifndef SEGV_BNDERR
 #define SEGV_BNDERR     3
+#endif
+#ifndef SEGV_ACCADI
+#define SEGV_ACCADI     5
+#endif
+#ifndef SEGV_ADIDERR
+#define SEGV_ADIDERR    6
+#endif
+#ifndef SEGV_ADIPERR
+#define SEGV_ADIPERR    7
+#endif
+#ifndef SEGV_MTEAERR
+#define SEGV_MTEAERR    8
+#endif
+#ifndef SEGV_MTESERR
+#define SEGV_MTESERR    9
+#endif
+#ifndef SEGV_CPERR
+#define SEGV_CPERR      10
 #endif
 
 /* Linux-specific si_code values for SIGBUS */
@@ -47,6 +69,15 @@
 /* Linux-specific si_code values for SIGTRAP */
 #ifndef TRAP_BRANCH
 #define TRAP_BRANCH     3
+#endif
+#ifndef TRAP_HWBKPT
+#define TRAP_HWBKPT     4
+#endif
+#ifndef TRAP_UNK
+#define TRAP_UNK        5
+#endif
+#ifndef TRAP_PERF
+#define TRAP_PERF       6
 #endif
 
 /* Linux-specific si_code values for SIGSYS */
@@ -93,3 +124,20 @@
 #ifndef __SI_FAULT
 #define __SI_FAULT      0
 #endif
+
+/* SIGPOLL — Linux names SIGIO for poll events; FreeBSD only defines SIGIO. */
+#ifndef SIGPOLL
+#define SIGPOLL SIGIO
+#endif
+
+/* Linux-compatible siginfo_t convenience members.
+ * FreeBSD's siginfo_t uses si_value.sival_int / si_value.sival_ptr. */
+#ifndef si_int
+#define si_int  si_value.sival_int
+#endif
+#ifndef si_ptr
+#define si_ptr  si_value.sival_ptr
+#endif
+
+/* rt_tgsigqueueinfo — Linux-specific syscall wrapper. */
+int rt_tgsigqueueinfo(__pid_t tgid, __pid_t tid, int sig, siginfo_t *info);

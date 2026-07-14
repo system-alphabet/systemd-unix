@@ -38,6 +38,15 @@ void setspent(void);
 void endspent(void);
 int putspent(const struct spwd *p, FILE *fp);
 
+/* Reentrant version — always fails on BSD */
+static inline int getspnam_r(const char *name, struct spwd *result_buf,
+                             char *buffer, size_t buflen,
+                             struct spwd **result) {
+        (void)name; (void)result_buf; (void)buffer; (void)buflen;
+        *result = NULL;
+        return EOPNOTSUPP;
+}
+
 #ifdef __cplusplus
 }
 #endif
