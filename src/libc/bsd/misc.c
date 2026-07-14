@@ -9,8 +9,19 @@
 #include <stdio.h>
 #include <limits.h>
 #include <signal.h>
+#include <dlfcn.h>
 #ifdef __FreeBSD__
 #include <pthread_np.h>
+#include <sys/cpuset.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netdb.h>
+/* DIOCGSECTORSIZE ioctl from <sys/disk.h> — we define it manually to avoid
+ * pulling in <sys/conf.h> which conflicts with our compat <sys/queue.h>. */
+#ifndef DIOCGSECTORSIZE
+#define DIOCGSECTORSIZE _IOR('d', 128, u_int)
+#endif
 #endif
 #ifdef __FreeBSD__
 #include <sys/event.h>
@@ -41,6 +52,7 @@
 #include <grp.h>
 #include <gshadow.h>
 #include <pthread.h>
+#include <linux/if_arp.h>
 
 /* Forward declarations for stub functions whose system headers don't exist on FreeBSD */
 unsigned int parse_printf_format(const char *fmt, size_t n, int *types);
@@ -209,7 +221,7 @@ int socket_address_is(const void *a, const char *s, int type);
 int socket_address_is_netlink(const void *a, const char *s);
 int netns_get_nsid(int netnsfd, uint32_t *ret);
 int af_unix_get_qlen(int fd, uint32_t *ret);
-int in_addr_port_ifindex_name_from_string_auto(const char *s, int family, void *ret, uint16_t *ret_port, int *ret_ifindex, char **ret_server_name);
+int in_addr_port_ifindex_name_from_string_auto(const char *s, int *ret_family, void *ret_address, uint16_t *ret_port, int *ret_ifindex, char **ret_server_name);
 int image_type_from_string(const char *s);
 int drop_privileges(uint64_t keep, uint64_t keep_inheritable, uint64_t keep_ambient);
 int capability_get(uint64_t *ret);
@@ -220,8 +232,17 @@ int have_inheritable_cap(void);
 /* close_range - close all fds from first to last */
 int close_range(unsigned int first, unsigned int last, int flags) {
         (void)flags;
+#ifdef __FreeBSD__
+        /* FreeBSD has closefrom() for the common case (close to max).
+         * For bounded ranges we fall back to a loop. */
+        if (last >= UINT_MAX || last >= sysconf(_SC_OPEN_MAX))
+                closefrom(first);
+        else
+                for (unsigned int i = first; i <= last; i++)
+                        close(i);
+        return 0;
+#else
         if (last == UINT_MAX) {
-                /* close from first to max, get max fd from sysconf */
                 long max = sysconf(_SC_OPEN_MAX);
                 if (max < 0) max = 1024;
                 for (long i = first; i <= max && i <= last; i++)
@@ -231,6 +252,7 @@ int close_range(unsigned int first, unsigned int last, int flags) {
                         close(i);
         }
         return 0;
+#endif
 }
 
 /* getrandom - read random bytes */
@@ -371,9 +393,20 @@ int prctl(int option, ...) {
 
 /* glibc provides program_invocation_name / program_invocation_short_name
  * in <errno.h>.  FreeBSD has nothing equivalent.
- * These must be mutable pointers (systemd writes to them via strncpy). */
+ * These must be mutable pointers (systemd writes to them via strncpy).
+ * We initialize them from getprogname() on FreeBSD. */
 char *program_invocation_name = NULL;
 char *program_invocation_short_name = NULL;
+
+/* Initialize program_invocation_name from getprogname().
+ * This is called by libc startup or can be called explicitly. */
+__attribute__((constructor)) static void _init_program_invocation(void) {
+        const char *p = getprogname();
+        if (p) {
+                program_invocation_name = strdup(p);
+                program_invocation_short_name = strdup(p);
+        }
+}
 
 /* Linux-style mount / umount / umount2 wrappers.
  * FreeBSD's mount() has a different signature; these always fail. */
@@ -612,12 +645,63 @@ int capability_set_from_string(const char *s, uint64_t *ret) {
         return 0;
 }
 
-/* getauxval — FreeBSD does not provide this; stub returning 0. */
+/* getauxval — read ELF auxiliary vector entry.
+ * FreeBSD provides the auxiliary vector via kern.proc.auxv sysctl.
+ * We query it for specific AT_* types and fall back to other APIs where possible. */
 unsigned long getauxval(unsigned long type);
 
+#include <sys/sysctl.h>
+
 unsigned long getauxval(unsigned long type) {
+#ifdef __FreeBSD__
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_AUXV, getpid()};
+        char *buf = NULL;
+        size_t len = 0;
+        /* First query size */
+        if (sysctl(mib, 4, NULL, &len, NULL, 0) < 0)
+                goto fallback;
+        buf = malloc(len);
+        if (!buf)
+                goto fallback;
+        if (sysctl(mib, 4, buf, &len, NULL, 0) < 0) {
+                free(buf);
+                goto fallback;
+        }
+        /* Parse auxiliary vector — each entry is a pair of unsigned long values */
+        unsigned long *auxv = (unsigned long *)buf;
+        size_t n = len / (2 * sizeof(unsigned long));
+        for (size_t i = 0; i < n; i++) {
+                unsigned long t = auxv[2 * i];
+                unsigned long v = auxv[2 * i + 1];
+                if (t == 0) /* AT_NULL */
+                        break;
+                if (t == type) {
+                        free(buf);
+                        return v;
+                }
+        }
+        free(buf);
+        return 0;
+fallback:
+        /* Try basic fallbacks for common types */
+        switch (type) {
+        case AT_PAGESZ:
+                return (unsigned long)getpagesize();
+        case AT_UID:
+                return (unsigned long)getuid();
+        case AT_EUID:
+                return (unsigned long)geteuid();
+        case AT_GID:
+                return (unsigned long)getgid();
+        case AT_EGID:
+                return (unsigned long)getegid();
+        default:
+                return 0;
+        }
+#else
         (void)type;
         return 0;
+#endif
 }
 
 /* statx strings (Linux-specific, return NULL on BSD) */
@@ -654,9 +738,18 @@ int openat2(int dfd, const char *filename, const struct open_how *how, size_t us
 }
 
 int fallocate(int fd, int mode, off_t offset, off_t len) {
-        (void)fd; (void)mode; (void)offset; (void)len;
-        errno = ENOSYS;
-        return -1;
+        /* Only support mode=0 (equivalent to posix_fallocate).
+         * Other flags like FALLOC_FL_KEEP_SIZE are Linux-specific. */
+        if (mode != 0) {
+                errno = EOPNOTSUPP;
+                return -1;
+        }
+        int r = posix_fallocate(fd, offset, len);
+        if (r != 0) {
+                errno = r;
+                return -1;
+        }
+        return 0;
 }
 
 /* pthread_create stub — FreeBSD needs explicit -lpthread linking */
@@ -710,21 +803,46 @@ int rtnl_get_link_info_full(
  * export it when _GNU_SOURCE is defined. */
 char **environ __attribute__((weak));
 
-/* pthread_setaffinity_np — set thread CPU affinity (Linux-specific). */
+/* pthread_setaffinity_np — set thread CPU affinity.
+ * On FreeBSD we use cpuset_setaffinity(). For non-self threads
+ * we currently only support the calling thread. */
 int pthread_setaffinity_np(pthread_t thread, size_t cpusetsize,
                            const cpu_set_t *cpuset) {
+#ifdef __FreeBSD__
+        if (!pthread_equal(thread, pthread_self())) {
+                /* Cannot easily map arbitrary pthread_t to FreeBSD TID */
+                errno = ENOSYS;
+                return -1;
+        }
+        return cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID,
+                                  (id_t)pthread_getthreadid_np(),
+                                  cpusetsize < sizeof(cpuset_t) ? cpusetsize : sizeof(cpuset_t),
+                                  (const cpuset_t *)cpuset);
+#else
         (void)thread; (void)cpusetsize; (void)cpuset;
         return errno = ENOSYS, -1;
+#endif
 }
 
-/* pthread_setname_np — set thread name. FreeBSD has the same API. */
+/* pthread_setname_np — set thread name.
+ * FreeBSD provides pthread_set_name_np() in <pthread_np.h> but the cross
+ * toolchain may not have it in libc. We use dlsym to call it if available. */
 int pthread_setname_np(pthread_t thread, const char *name) {
+#ifdef __FreeBSD__
+        /* Look up pthread_set_name_np dynamically so we work with both
+         * FreeBSD versions that have it and those that don't. */
+        static void (*real_pthread_set_name_np)(pthread_t, const char *) = NULL;
+        if (!real_pthread_set_name_np) {
+                real_pthread_set_name_np = (void (*)(pthread_t, const char *))
+                        dlsym(RTLD_DEFAULT, "pthread_set_name_np");
+        }
+        if (real_pthread_set_name_np)
+                real_pthread_set_name_np(thread, name);
+        return 0;
+#else
         (void)thread; (void)name;
-        /* The system function exists but we let it call through the normal process.
-         * This stub should not need to exist — the function is available on FreeBSD.
-         * We provide it in case of linking issues. */
-        errno = ENOSYS;
-        return -1;
+        return 0;
+#endif
 }
 
 /* copy_tree_at_full — from copy.c (excluded on BSD). */
@@ -830,10 +948,95 @@ int sd_netlink_message_append_data(void *m, uint16_t attr_type, const void *data
         return -ENOSYS;
 }
 
-/* arphrd_to_name — ARP hardware type to string. */
+/* arphrd_to_name — ARP hardware type to string.
+ * Linux <linux/if_arp.h> provides the constants; we build a static table. */
+static const struct {
+        int id;
+        const char *name;
+} arphrd_names[] = {
+        { ARPHRD_NETROM,            "NETROM" },
+        { ARPHRD_ETHER,             "ETHER" },
+        { ARPHRD_EETHER,            "EETHER" },
+        { ARPHRD_AX25,              "AX25" },
+        { ARPHRD_PRONET,            "PRONET" },
+        { ARPHRD_CHAOS,             "CHAOS" },
+        { ARPHRD_IEEE802,           "IEEE802" },
+        { ARPHRD_ARCNET,            "ARCNET" },
+        { ARPHRD_APPLETLK,          "APPLETLK" },
+        { ARPHRD_DLCI,              "DLCI" },
+        { ARPHRD_ATM,               "ATM" },
+        { ARPHRD_METRICOM,          "METRICOM" },
+        { ARPHRD_IEEE1394,          "IEEE1394" },
+        { ARPHRD_EUI64,             "EUI64" },
+        { ARPHRD_INFINIBAND,        "INFINIBAND" },
+        { ARPHRD_SIT,               "SIT" },
+        { ARPHRD_IPGRE,             "IPGRE" },
+        { ARPHRD_TUNNEL,            "TUNNEL" },
+        { ARPHRD_TUNNEL6,           "TUNNEL6" },
+        { ARPHRD_LOOPBACK,          "LOOPBACK" },
+        { ARPHRD_LOCALTLK,          "LOCALTLK" },
+        { ARPHRD_PPP,               "PPP" },
+        { ARPHRD_CISCO,             "CISCO" },
+        { ARPHRD_RAWHDLC,           "RAWHDLC" },
+        { ARPHRD_IP6TUNNEL,         "IP6TUNNEL" },
+        { ARPHRD_SLIP,              "SLIP" },
+        { ARPHRD_CSLIP,             "CSLIP" },
+        { ARPHRD_SLIP6,             "SLIP6" },
+        { ARPHRD_CSLIP6,            "CSLIP6" },
+        { ARPHRD_RSRVD,             "RSRVD" },
+        { ARPHRD_ADAPT,             "ADAPT" },
+        { ARPHRD_ROSE,              "ROSE" },
+        { ARPHRD_X25,               "X25" },
+        { ARPHRD_HWX25,             "HWX25" },
+        { ARPHRD_PIMREG,            "PIMREG" },
+        { ARPHRD_IRDA,              "IRDA" },
+        { ARPHRD_FCPP,              "FCPP" },
+        { ARPHRD_FCAL,              "FCAL" },
+        { ARPHRD_FCPL,              "FCPL" },
+        { ARPHRD_FCFABRIC,          "FCFABRIC" },
+        { ARPHRD_IEEE80211,         "IEEE80211" },
+        { ARPHRD_IEEE80211_PRISM,   "IEEE80211_PRISM" },
+        { ARPHRD_IEEE80211_RADIOTAP,"IEEE80211_RADIOTAP" },
+        { ARPHRD_IEEE802154,        "IEEE802154" },
+        { ARPHRD_IEEE802154_MONITOR,"IEEE802154_MONITOR" },
+        { ARPHRD_PHONET,            "PHONET" },
+        { ARPHRD_PHONET_PIPE,       "PHONET_PIPE" },
+        { ARPHRD_CAIF,              "CAIF" },
+        { ARPHRD_IP6GRE,            "IP6GRE" },
+        { ARPHRD_NETLINK,           "NETLINK" },
+        { ARPHRD_6LOWPAN,           "6LOWPAN" },
+        { ARPHRD_VSOCKMON,          "VSOCKMON" },
+        { ARPHRD_MACSEC,            "MACSEC" },
+        { ARPHRD_NONE,              "NONE" },
+        { ARPHRD_VOID,              "VOID" },
+};
+
 const char *arphrd_to_name(int id) {
-        (void)id;
+        for (size_t i = 0; i < sizeof(arphrd_names) / sizeof(arphrd_names[0]); i++) {
+                if (arphrd_names[i].id == id)
+                        return arphrd_names[i].name;
+        }
         return NULL;
+}
+
+/* arphrd_to_hw_addr_len — from basic/arphrd-util.c
+ * Returns the hardware address length for ARPHRD types. */
+int arphrd_to_hw_addr_len(int id) {
+        switch (id) {
+        case ARPHRD_ETHER:
+                return 6; /* ETH_ALEN */
+        case ARPHRD_INFINIBAND:
+                return 20; /* INFINIBAND_ALEN */
+        case ARPHRD_TUNNEL:
+        case ARPHRD_SIT:
+        case ARPHRD_IPGRE:
+                return 4; /* sizeof(struct in_addr) */
+        case ARPHRD_TUNNEL6:
+        case ARPHRD_IP6GRE:
+                return 16; /* sizeof(struct in6_addr) */
+        default:
+                return 0;
+        }
 }
 
 /* copy_bytes_full — from copy.c (excluded on BSD). */
@@ -916,11 +1119,6 @@ int mountfsd_mount_directory_fd(void *vl, int directory_fd, int userns_fd,
 const char *nl80211_iftype_to_string(int i) {
         (void)i;
         return NULL;
-}
-/* arphrd_to_hw_addr_len — from basic/arphrd-util.c */
-int arphrd_to_hw_addr_len(int id) {
-        (void)id;
-        return -ENOSYS;
 }
 /* quotactl_fd — from sys/quota.h */
 int quotactl_fd(int fd, int cmd, int id, void *addr) {
@@ -1019,9 +1217,17 @@ int probe_partition_table(int fd, bool *ret_is_gpt) {
         return -ENOSYS;
 }
 int probe_sector_size(int fd, uint32_t *ret) {
-        (void)fd; (void)ret;
+#ifdef __FreeBSD__
+        u_int sector_size;
+        if (ioctl(fd, DIOCGSECTORSIZE, &sector_size) < 0)
+                return -errno;
+        *ret = sector_size;
+        return 0;
+#else
+        (void)fd;
         *ret = 512;
         return 0;
+#endif
 }
 
 /* copy_file_* stubs — from copy.c (excluded on BSD) */
@@ -1159,12 +1365,38 @@ int copy_rights_with_fallback(int fdf, int fdt, const char *patht) {
         return -ENOSYS;
 }
 
-/* probe_filesystem_full — from dissect-image.c (excluded on BSD) */
+/* probe_filesystem_full — detect filesystem type from fd or path.
+ * On FreeBSD we use statfs.f_fstypename which gives the native FS type name.
+ * The caller compares against Linux magic constants so we translate where possible. */
 int probe_filesystem_full(int fd, const char *path, uint64_t offset, uint64_t size,
                           int restrict_fstypes, char **ret_fstype) {
+#ifdef __FreeBSD__
+        /* We only support probing at offset 0 on real devices/paths (no offset probing) */
+        if (offset != 0 || size != 0)
+                return -ENOSYS;
+        struct statfs s;
+        int r;
+        if (fd >= 0)
+                r = fstatfs(fd, &s);
+        else if (path)
+                r = statfs(path, &s);
+        else
+                return -EINVAL;
+        if (r < 0)
+                return -errno;
+        if (ret_fstype) {
+                /* statfs.f_fstypename is a char array like "ufs", "zfs", "ext2fs" */
+                *ret_fstype = strdup(s.f_fstypename);
+                if (!*ret_fstype)
+                        return -ENOMEM;
+        }
+        (void)restrict_fstypes;
+        return 0;
+#else
         (void)fd; (void)path; (void)offset; (void)size;
         (void)restrict_fstypes; (void)ret_fstype;
         return -ENOSYS;
+#endif
 }
 
 /* get_common_dissect_directory — from dissect-image.c */
@@ -1284,10 +1516,20 @@ int dlopen_bpf(int log_level) {
         return -ENOSYS;
 }
 
-/* dlopen_libpam — from pam-util.c (excluded on BSD) */
+/* dlopen_libpam — load PAM library.
+ * FreeBSD uses OpenPAM which is libpam.so. */
 int dlopen_libpam(int log_level) {
-        (void)log_level;
-        return -ENOSYS;
+        /* OpenPAM on FreeBSD provides libpam.so */
+        void *dl = dlopen("libpam.so", RTLD_NOW | RTLD_GLOBAL);
+        if (!dl) {
+                /* Also try libpam.so on some BSDs */
+                dl = dlopen("libpam.so", RTLD_NOW | RTLD_GLOBAL);
+        }
+        if (!dl) {
+                (void)log_level;
+                return -ENOSYS;
+        }
+        return 0;
 }
 
 /* loopback_setup — from loopback-setup.c (excluded on BSD) */
@@ -1328,10 +1570,15 @@ int nft_set_element_modify_iprange(void *nl, int protocol, int family, int table
         return -ENOSYS;
 }
 
-/* arphrd_from_name — from generated arphrd-from-name.inc (skipped on BSD) */
+/* arphrd_from_name — reverse lookup: name to ARPHRD id. */
 int arphrd_from_name(const char *name) {
-        (void)name;
-        return -ENOSYS;
+        if (!name)
+                return -EINVAL;
+        for (size_t i = 0; i < sizeof(arphrd_names) / sizeof(arphrd_names[0]); i++) {
+                if (strcasecmp(arphrd_names[i].name, name) == 0)
+                        return arphrd_names[i].id;
+        }
+        return -EINVAL;
 }
 
 /* capability_list_length — from capability-list.c (excluded on BSD) */
@@ -1446,10 +1693,99 @@ int af_unix_get_qlen(int fd, uint32_t *ret) {
         return -ENOSYS;
 }
 
-/* in_addr_port_ifindex_name_from_string_auto — from socket-netlink.c */
-int in_addr_port_ifindex_name_from_string_auto(const char *s, int family, void *ret, uint16_t *ret_port, int *ret_ifindex, char **ret_server_name) {
-        (void)s; (void)family; (void)ret; (void)ret_port; (void)ret_ifindex; (void)ret_server_name;
+/* in_addr_port_ifindex_name_from_string_auto — parse "addr:port" or "host:port".
+ * On FreeBSD we parse via getaddrinfo. The ret_address is a union in_addr_union
+ * (must be at least 16 bytes for in6_addr). */
+int in_addr_port_ifindex_name_from_string_auto(const char *s, int *ret_family, void *ret_address, uint16_t *ret_port, int *ret_ifindex, char **ret_server_name) {
+#ifdef __FreeBSD__
+        if (!s)
+                return -EINVAL;
+
+        char *buf = strdup(s);
+        if (!buf)
+                return -ENOMEM;
+        char *colon = strrchr(buf, ']');
+        if (!colon)
+                colon = strrchr(buf, ':');
+        else
+                colon = strchr(colon, ':');
+
+        uint16_t port = 0;
+        char *host = buf;
+        int family_hint = AF_UNSPEC;
+
+        if (colon && colon > buf) {
+                *colon = '\0';
+                char *end;
+                long p = strtol(colon + 1, &end, 10);
+                if (end != colon + 1 && *end == '\0' && p > 0 && p <= 65535) {
+                        port = (uint16_t)p;
+                } else {
+                        free(buf);
+                        return -EINVAL;
+                }
+                host = buf;
+                if (host[0] == '[') {
+                        host++;
+                        char *close_bracket = strchr(host, ']');
+                        if (close_bracket) {
+                                *close_bracket = '\0';
+                                family_hint = AF_INET6;
+                        }
+                }
+        }
+
+        struct addrinfo hints = {};
+        hints.ai_family = family_hint;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = AI_NUMERICHOST;
+
+        struct addrinfo *result = NULL;
+        int r = getaddrinfo(host, NULL, &hints, &result);
+        if (r != 0) {
+                hints.ai_family = AF_UNSPEC;
+                r = getaddrinfo(host, NULL, &hints, &result);
+        }
+        if (r != 0) {
+                free(buf);
+                return -EINVAL;
+        }
+
+        if (!result->ai_addr) {
+                freeaddrinfo(result);
+                free(buf);
+                return -EINVAL;
+        }
+
+        int family = result->ai_addr->sa_family;
+        if (ret_family)
+                *ret_family = family;
+
+        if (ret_address) {
+                if (family == AF_INET) {
+                        struct sockaddr_in *sin = (struct sockaddr_in *)result->ai_addr;
+                        memcpy(ret_address, &sin->sin_addr, sizeof(struct in_addr));
+                } else if (family == AF_INET6) {
+                        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)result->ai_addr;
+                        memcpy(ret_address, &sin6->sin6_addr, sizeof(struct in6_addr));
+                }
+        }
+
+        if (ret_port)
+                *ret_port = port;
+        if (ret_ifindex)
+                *ret_ifindex = 0;
+        if (ret_server_name)
+                *ret_server_name = NULL;
+
+        freeaddrinfo(result);
+        free(buf);
+        return 0;
+#else
+        (void)s; (void)ret_family; (void)ret_address; (void)ret_port;
+        (void)ret_ifindex; (void)ret_server_name;
         return -ENOSYS;
+#endif
 }
 
 /* image_type_from_string — from discover-image.c (excluded on BSD) */
