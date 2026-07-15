@@ -1019,8 +1019,15 @@ static int bind_description(sd_bus *b, int fd, int family) {
         if (r < 0)
                 return r;
 
-        if (bind(fd, &bsa.sa, r) < 0)
+        if (bind(fd, &bsa.sa, r) < 0) {
+#ifdef __FreeBSD__
+                /* Abstract AF_UNIX sockets (sun_path[0] == '\0') are a Linux extension.
+                 * FreeBSD does not support them; skip the debug-only naming. */
+                return 0;
+#else
                 return -errno;
+#endif
+        }
 
         return 0;
 }

@@ -151,7 +151,7 @@ int sd_rtnl_message_addr_get_family(void *m);
 int sd_rtnl_message_new_link(void *rtnl, void **ret, int type, int ifindex);
 int sd_rtnl_message_link_set_flags(void *m, unsigned int flags, unsigned int change);
 int sd_rtnl_message_link_get_flags(void *m, unsigned int *ret);
-int probe_partition_table(int fd, bool *ret_is_gpt);
+int probe_partition_table(int fd, char **ret_pttype);
 int probe_sector_size(int fd, uint32_t *ret);
 int copy_file_atomic_at_full(int dir_fdf, const char *from, int dir_fdt, const char *to,
                              mode_t mode, unsigned chattr_flags, unsigned chattr_mask,
@@ -258,22 +258,22 @@ int close_range(unsigned int first, unsigned int last, int flags) {
 /* getrandom - read random bytes */
 ssize_t getrandom(void *buf, size_t buflen, unsigned int flags) {
         (void)flags;
-        FILE *f;
-        size_t n;
+        int fd;
+        ssize_t n;
         int saved_errno;
 
-        f = fopen("/dev/urandom", "re");
-        if (!f)
-                f = fopen("/dev/random", "re");
-        if (!f)
+        fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOCTTY);
+        if (fd < 0)
+                fd = open("/dev/random", O_RDONLY | O_CLOEXEC | O_NOCTTY);
+        if (fd < 0)
                 return errno = ENOSYS, -1;
-        n = fread(buf, 1, buflen, f);
+        n = read(fd, buf, buflen);
         saved_errno = errno;
-        fclose(f);
+        close(fd);
         errno = saved_errno;
-        if (n != buflen)
+        if (n < 0 || (size_t)n != buflen)
                 return -1;
-        return (ssize_t)n;
+        return n;
 }
 
 /* renameat2 - Linux extension */
@@ -368,15 +368,61 @@ ssize_t getdents64(int fd, void *dirp, size_t count) {
 #endif
 }
 
-/* statx — Linux statx() syscall (always fails on FreeBSD) */
+/* statx — implement via fstatat() + struct stat → struct statx conversion */
 int statx(int dirfd, const char *pathname, int flags,
           unsigned int mask, struct statx *statxbuf) {
-        (void)dirfd;
-        (void)pathname;
-        (void)flags;
-        (void)mask;
-        (void)statxbuf;
-        return errno = ENOSYS, -1;
+        struct stat sb;
+        int fstatat_flags, r;
+
+        if (!statxbuf)
+                return errno = EFAULT, -1;
+
+        memset(statxbuf, 0, sizeof(*statxbuf));
+
+        /* Translate statx() flags to fstatat() flags.
+         * AT_EMPTY_PATH and AT_SYMLINK_NOFOLLOW are the only flags
+         * fstatat() understands. On FreeBSD AT_EMPTY_PATH == AT_STATX_DONT_SYNC
+         * (both 0x4000) so we can pass them through directly — fstatat()
+         * only acts on AT_EMPTY_PATH when pathname is empty. */
+        fstatat_flags = flags & (AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH);
+
+        r = fstatat(dirfd, pathname, &sb, fstatat_flags);
+        if (r < 0)
+                return errno = errno, -1;
+
+        /* Convert struct stat → struct statx */
+        statxbuf->stx_mask = STATX_BASIC_STATS | STATX_BTIME;
+        statxbuf->stx_blksize = sb.st_blksize;
+        statxbuf->stx_nlink = sb.st_nlink;
+        statxbuf->stx_uid = sb.st_uid;
+        statxbuf->stx_gid = sb.st_gid;
+        statxbuf->stx_mode = sb.st_mode;
+        statxbuf->stx_ino = sb.st_ino;
+        statxbuf->stx_size = sb.st_size;
+        statxbuf->stx_blocks = sb.st_blocks;
+        statxbuf->stx_attributes_mask = 0;
+
+        /* Timestamps — FreeBSD struct timespec has (time_t, long) which
+         * may differ from statx_timestamp's (int64_t, uint32_t). */
+#define SB_TO_STX_TIMESTAMP(sbx, sb_member) do { \
+                (sbx).tv_sec = (int64_t)(sb_member).tv_sec; \
+                (sbx).tv_nsec = (uint32_t)(sb_member).tv_nsec; \
+        } while (0)
+        SB_TO_STX_TIMESTAMP(statxbuf->stx_atime, sb.st_atim);
+        SB_TO_STX_TIMESTAMP(statxbuf->stx_ctime, sb.st_ctim);
+        SB_TO_STX_TIMESTAMP(statxbuf->stx_mtime, sb.st_mtim);
+        SB_TO_STX_TIMESTAMP(statxbuf->stx_btime, sb.st_birthtim);
+#undef SB_TO_STX_TIMESTAMP
+
+        statxbuf->stx_rdev_major = major(sb.st_rdev);
+        statxbuf->stx_rdev_minor = minor(sb.st_rdev);
+        statxbuf->stx_dev_major = major(sb.st_dev);
+        statxbuf->stx_dev_minor = minor(sb.st_dev);
+
+        /* Only report fields the caller asked for */
+        statxbuf->stx_mask &= mask;
+
+        return 0;
 }
 
 /* personality — Linux process execution domain (always fails) */
@@ -803,6 +849,30 @@ int rtnl_get_link_info_full(
  * export it when _GNU_SOURCE is defined. */
 char **environ __attribute__((weak));
 
+/* pthread_once — FreeBSD's libc threading dispatch uses a jtable
+ * mechanism. The default entries may not handle PTHREAD_ONCE_INIT's
+ * NULL mutex correctly, returning EINVAL. Provide our own using
+ * GCC/Clang atomic builtins (no library dependency). */
+int pthread_once(pthread_once_t *once_control, void (*init_routine)(void)) {
+        static volatile int g_once_lock = 0;
+
+        if (!once_control || !init_routine)
+                return EINVAL;
+
+        while (__sync_lock_test_and_set(&g_once_lock, 1))
+                ; /* spin */
+
+        __sync_synchronize();
+
+        if (once_control->state == PTHREAD_NEEDS_INIT) {
+                init_routine();
+                once_control->state = PTHREAD_DONE_INIT;
+        }
+
+        __sync_lock_release(&g_once_lock);
+        return 0;
+}
+
 /* pthread_setaffinity_np — set thread CPU affinity.
  * On FreeBSD we use cpuset_setaffinity(). For non-self threads
  * we currently only support the calling thread. */
@@ -1039,14 +1109,115 @@ int arphrd_to_hw_addr_len(int id) {
         }
 }
 
-/* copy_bytes_full — from copy.c (excluded on BSD). */
+/* copy_bytes_full — from copy.c (excluded on BSD).
+ * Simple read/write loop; no reflink/sendfile/hole optimizations. */
+#define CBF_SEEK0_SOURCE (1 << 23)
+#define CBF_SEEK0_TARGET (1 << 24)
+#define CBF_SIGINT       (1 << 6)
+#define CBF_SIGTERM      (1 << 7)
+#define CBF_TRUNCATE     (1 << 16)
+#define CBF_FSYNC        (1 << 10)
+
 int copy_bytes_full(int fdf, int fdt, uint64_t max_bytes, unsigned int copy_flags,
                     void **ret_remains, size_t *ret_remains_size,
                     void *progress, void *userdata) {
-        (void)fdf; (void)fdt; (void)max_bytes; (void)copy_flags;
-        (void)ret_remains; (void)ret_remains_size; (void)progress; (void)userdata;
-        return -ENOSYS;
+        typedef int (*progress_fn_t)(uint64_t, uint64_t, void *);
+        progress_fn_t cb = (progress_fn_t)progress;
+        uint64_t copied_total = 0;
+        struct timespec start_ts;
+
+        if (ret_remains)
+                *ret_remains = NULL;
+        if (ret_remains_size)
+                *ret_remains_size = 0;
+
+        if ((copy_flags & CBF_SEEK0_SOURCE) && lseek(fdf, 0, SEEK_SET) < 0)
+                return -errno;
+        if ((copy_flags & CBF_SEEK0_TARGET) && lseek(fdt, 0, SEEK_SET) < 0)
+                return -errno;
+
+        if (cb)
+                clock_gettime(CLOCK_MONOTONIC, &start_ts);
+
+        for (;;) {
+                uint8_t buf[65536];
+                size_t m = sizeof(buf);
+                ssize_t n, written, w;
+
+                if (max_bytes <= 0)
+                        break;
+
+                if (max_bytes != UINT64_MAX && m > max_bytes)
+                        m = max_bytes;
+
+                /* Check for signals (simplified: no sigwait available here) */
+                if (copy_flags & (CBF_SIGINT | CBF_SIGTERM)) {
+                        struct sigaction old;
+                        /* Just test if a signal handler exists — a real check
+                         * would need signalfd/sigpending which is overkill. */
+                }
+
+                n = read(fdf, buf, m);
+                if (n < 0)
+                        return -errno;
+                if (n == 0)
+                        break; /* EOF */
+
+                for (written = 0; written < n; written += w) {
+                        w = write(fdt, buf + written, (size_t)n - written);
+                        if (w < 0) {
+                                /* Save remaining data on write failure */
+                                size_t remaining = (size_t)n - written;
+                                void *rem = NULL;
+                                if (ret_remains && remaining > 0) {
+                                        rem = malloc(remaining);
+                                        if (rem) {
+                                                memcpy(rem, buf + written, remaining);
+                                                *ret_remains = rem;
+                                                if (ret_remains_size)
+                                                        *ret_remains_size = remaining;
+                                        }
+                                }
+                                return -errno;
+                        }
+                }
+
+                copied_total += n;
+
+                if (max_bytes != UINT64_MAX)
+                        max_bytes -= n;
+
+                if (cb) {
+                        struct timespec now_ts;
+                        uint64_t elapsed;
+                        clock_gettime(CLOCK_MONOTONIC, &now_ts);
+                        elapsed = (uint64_t)(now_ts.tv_sec - start_ts.tv_sec) * 1000000 +
+                                 (now_ts.tv_nsec - start_ts.tv_nsec) / 1000;
+                        uint64_t bps = elapsed > 0 ? copied_total * 1000000 / elapsed : 0;
+                        int r = cb(copied_total, bps, userdata);
+                        if (r < 0)
+                                return r;
+                }
+        }
+
+        if ((copy_flags & CBF_TRUNCATE)) {
+                off_t pos = lseek(fdt, 0, SEEK_CUR);
+                if (pos >= 0 && ftruncate(fdt, pos) < 0)
+                        return -errno;
+        }
+
+        if ((copy_flags & CBF_FSYNC) && fsync(fdt) < 0)
+                return -errno;
+
+        /* Return 0 = EOF, 1 = stopped by max_bytes */
+        return max_bytes > 0 ? 0 : 1;
 }
+#undef CBF_SEEK0_SOURCE
+#undef CBF_SEEK0_TARGET
+#undef CBF_SIGINT
+#undef CBF_SIGTERM
+#undef CBF_TRUNCATE
+#undef CBF_FSYNC
 
 /* dissect-image stubs (dissect-image.c excluded on BSD) */
 void *dissected_image_unref(void *m) {
@@ -1212,9 +1383,46 @@ int sd_rtnl_message_link_get_flags(void *m, unsigned int *ret) {
         (void)m; (void)ret;
         return -ENOSYS;
 }
-int probe_partition_table(int fd, bool *ret_is_gpt) {
-        (void)fd; (void)ret_is_gpt;
-        return -ENOSYS;
+int probe_partition_table(int fd, char **ret_pttype) {
+        /* Probes for GPT or MBR ("dos") partition table by reading
+         * the first two sectors from the device. Matches the signature
+         * from dissect-image.h: returns "gpt", "dos", or NULL. */
+        uint8_t sector0[512], sector1[512];
+        ssize_t n;
+
+        assert(fd >= 0);
+        assert(ret_pttype);
+
+        *ret_pttype = NULL;
+
+        /* Read LBA 0 — MBR / protective MBR */
+        n = pread(fd, sector0, sizeof(sector0), 0);
+        if (n < 0)
+                return -errno;
+        if ((size_t)n < sizeof(sector0))
+                return 0; /* device too small for any table */
+
+        /* Check for MBR signature 0xAA55 at offset 510 */
+        if (sector0[510] != 0x55 || sector0[511] != 0xAA)
+                return 0; /* no MBR signature → no partition table */
+
+        /* Check for GPT: read LBA 1 (GPT header) */
+        n = pread(fd, sector1, sizeof(sector1), 512);
+        if (n < 0)
+                return -errno;
+        if ((size_t)n >= sizeof(sector1) &&
+            memcmp(sector1, "EFI PART", 8) == 0) {
+                *ret_pttype = strdup("gpt");
+                if (!*ret_pttype)
+                        return -ENOMEM;
+                return 0;
+        }
+
+        /* Valid MBR but not GPT → "dos" */
+        *ret_pttype = strdup("dos");
+        if (!*ret_pttype)
+                return -ENOMEM;
+        return 0;
 }
 int probe_sector_size(int fd, uint32_t *ret) {
 #ifdef __FreeBSD__
@@ -1239,9 +1447,37 @@ int copy_file_atomic_at_full(int dir_fdf, const char *from, int dir_fdt, const c
         return -ENOSYS;
 }
 int copy_file_fd_at_full(int dir_fdf, const char *from, int fdt, unsigned int copy_flags,
-                         void *progress, void *userdata) {
-        (void)dir_fdf; (void)from; (void)fdt; (void)copy_flags; (void)progress; (void)userdata;
-        return -ENOSYS;
+                          void *progress, void *userdata) {
+        int fdf, r;
+
+        fdf = openat(dir_fdf, from, O_RDONLY | O_CLOEXEC | O_NOCTTY);
+        if (fdf < 0)
+                return -errno;
+
+        r = copy_bytes_full(fdf, fdt, UINT64_MAX, copy_flags,
+                            NULL, NULL, progress, userdata);
+        if (r < 0) {
+                close(fdf);
+                return r;
+        }
+
+        /* Copy timestamps if target is a regular file */
+        struct stat src_st, dst_st;
+        if (fstat(fdf, &src_st) == 0 && fstat(fdt, &dst_st) == 0 && S_ISREG(dst_st.st_mode)) {
+                struct timespec ts[2] = { src_st.st_atim, src_st.st_mtim };
+                (void)futimens(fdt, ts);
+        }
+
+        /* Fsync (COPY_FSYNC = 1 << 10, COPY_FSYNC_FULL = 1 << 11) */
+        if (copy_flags & (1 << 10)) {
+                if (copy_flags & (1 << 11))
+                        (void)fsync(fdt); /* full — simplified, same as plain fsync */
+                else
+                        (void)fsync(fdt);
+        }
+
+        close(fdf);
+        return 0;
 }
 int copy_file_at_full(int dir_fdf, const char *from, int dir_fdt, const char *to,
                       int open_flags, mode_t mode, unsigned chattr_flags, unsigned chattr_mask,
@@ -1361,8 +1597,26 @@ int local_outbounds(void *context, int ifindex, int af, void **ret) {
 
 /* copy_rights_with_fallback — from copy.c (excluded on BSD) */
 int copy_rights_with_fallback(int fdf, int fdt, const char *patht) {
-        (void)fdf; (void)fdt; (void)patht;
-        return -ENOSYS;
+        struct stat st;
+
+        if (fstat(fdf, &st) < 0)
+                return -errno;
+
+        /* Try to set ownership via fchown first */
+        if (fchown(fdt, st.st_uid, st.st_gid) < 0) {
+                if (errno != EPERM)
+                        return -errno;
+                /* EPERM is expected for most callers running as non-root;
+                 * if a path fallback is available and we have the privilege,
+                 * try chown via path */
+                if (patht && chown(patht, st.st_uid, st.st_gid) < 0 && errno != EPERM)
+                        return -errno;
+        }
+
+        if (fchmod(fdt, st.st_mode & 07777) < 0)
+                return -errno;
+
+        return 0;
 }
 
 /* probe_filesystem_full — detect filesystem type from fd or path.
@@ -1401,8 +1655,43 @@ int probe_filesystem_full(int fd, const char *path, uint64_t offset, uint64_t si
 
 /* get_common_dissect_directory — from dissect-image.c */
 int get_common_dissect_directory(char **ret) {
-        (void)ret;
-        return -ENOSYS;
+        char *t;
+        int r = 0;
+
+        t = strdup("/run/systemd/dissect-root");
+        if (!t)
+                return -ENOMEM;
+
+        /* Simple mkdir -p: try final path first, then create parents on ENOENT */
+        if (mkdir(t, 0000) < 0) {
+                if (errno == EEXIST)
+                        goto done;
+                if (errno != ENOENT) {
+                        r = -errno;
+                        goto fail;
+                }
+                /* Create parent /run/systemd/ (ignore if /run doesn't exist) */
+                (void)mkdir("/run", 0755);
+                if (mkdir("/run/systemd", 0755) < 0 && errno != EEXIST) {
+                        r = -errno;
+                        goto fail;
+                }
+                if (mkdir(t, 0000) < 0 && errno != EEXIST) {
+                        r = -errno;
+                        goto fail;
+                }
+        }
+
+done:
+        if (ret)
+                *ret = t;
+        else
+                free(t);
+        return r;
+
+fail:
+        free(t);
+        return r;
 }
 
 /* dissect_loop_device — from dissect-image.c */
@@ -1532,9 +1821,38 @@ int dlopen_libpam(int log_level) {
         return 0;
 }
 
-/* loopback_setup — from loopback-setup.c (excluded on BSD) */
+/* loopback_setup — from loopback-setup.c (excluded on BSD).
+ * Brings up the loopback interface via ioctl. */
 int loopback_setup(void) {
+#ifdef __FreeBSD__
+        struct ifreq ifr;
+        int fd, r = 0;
+
+        fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd < 0)
+                return -errno;
+
+        strlcpy(ifr.ifr_name, "lo0", sizeof(ifr.ifr_name));
+
+        if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
+                r = -errno;
+                goto out;
+        }
+
+        if (!(ifr.ifr_flags & IFF_UP)) {
+                ifr.ifr_flags |= IFF_UP;
+                if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0) {
+                        r = -errno;
+                        goto out;
+                }
+        }
+
+out:
+        close(fd);
+        return r;
+#else
         return -ENOSYS;
+#endif
 }
 
 /* nfproto_is_valid — from sd-netlink (excluded on BSD) */

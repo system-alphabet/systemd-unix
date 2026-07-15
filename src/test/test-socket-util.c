@@ -24,7 +24,7 @@
 #include "tmpfile-util.h"
 #include "user-util.h"
 
-assert_cc(SUN_PATH_LEN == 108);
+assert_cc(SUN_PATH_LEN == 108 || SUN_PATH_LEN == 104);
 
 TEST(ifname_valid) {
         ASSERT_TRUE(ifname_valid("foo"));

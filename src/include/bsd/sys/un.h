@@ -2,28 +2,15 @@
 #pragma once
 
 /*
- * BSD <sys/un.h> override — provides a Linux-compatible struct sockaddr_un
- * with a 108-byte sun_path (FreeBSD uses 104).
+ * BSD <sys/un.h> pass-through.
  *
- * We fully redefine the struct instead of relying on SUNPATHLEN, because
- * the system header may be pulled in via #include_next before our override
- * takes effect.
+ * We do NOT override struct sockaddr_un here.  FreeBSD's native layout
+ * (sun_len + sun_family + sun_path[104]) is compatible with the
+ * sockaddr_union overlay in src/basic/socket-util.h, while Linux's
+ * layout (sun_family + sun_path[108]) is not.  Keeping our own
+ * Linux-compatible definition would put sun_family at a different
+ * offset than struct sockaddr.sa_family inside the union, causing
+ * socket(2) to receive junk instead of AF_UNIX → EAFNOSUPPORT.
  */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#define UNIX_PATH_MAX    108
-
-struct sockaddr_un {
-        sa_family_t sun_family;
-        char sun_path[108];
-};
-
-#ifdef __cplusplus
-}
-#endif
+#include_next <sys/un.h>

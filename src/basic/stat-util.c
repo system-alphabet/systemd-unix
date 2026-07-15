@@ -704,15 +704,29 @@ int path_is_network_fs(const char *path) {
 int proc_mounted(void) {
         /* This is typically used in error path. So, it is better to not overwrite the original errno. */
         PROTECT_ERRNO;
+        struct statfs s;
         int r;
 
         /* A quick check of procfs is properly mounted */
 
-        r = path_is_fs_type("/proc/", PROC_SUPER_MAGIC);
+        r = xstatfsat(AT_FDCWD, "/proc/", &s);
         if (r == -ENOENT) /* not mounted at all */
                 return false;
+        if (r < 0)
+                return r;
 
-        return r;
+        if (is_fs_type(&s, PROC_SUPER_MAGIC))
+                return true;
+
+#ifdef __FreeBSD__
+        /* FreeBSD: linprocfs or native procfs report different f_type but
+         * still provide a usable /proc/. Check by f_fstypename. */
+        if (strcmp(s.f_fstypename, "procfs") == 0 ||
+            strcmp(s.f_fstypename, "linprocfs") == 0)
+                return true;
+#endif
+
+        return false;
 }
 
 bool stat_inode_same(const struct stat *a, const struct stat *b) {

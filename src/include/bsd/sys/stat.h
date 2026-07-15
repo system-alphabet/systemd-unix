@@ -5,9 +5,9 @@
 
 /*
  * Linux statx() — extended stat system call.
- * FreeBSD does not have statx(); these definitions allow code that
- * references struct statx / STATX_* to compile.
- * The actual statx() call is a stub that returns ENOSYS.
+ * FreeBSD does not have a native statx() syscall; instead we emulate
+ * it via fstatat() + struct stat → struct statx conversion in misc.c.
+ * These definitions allow code that uses struct statx / STATX_* to compile.
  */
 
 #include <stdint.h>
