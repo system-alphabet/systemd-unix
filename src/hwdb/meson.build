@@ -8,6 +8,7 @@ executables += [
                 'sources' : files('hwdb.c'),
                 #'link_with' : udev_link_with,
                 #'install_rpath' : udev_rpath,
+                'install' : 'yes',
                 'install_tag' : 'hwdb',
         },
 ]

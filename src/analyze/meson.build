@@ -47,6 +47,6 @@ executables += [
                 'dependencies' : [
                         libseccomp_cflags,
                 ],
-                'install' : conf.get('ENABLE_ANALYZE') == 1,
+                'install' : conf.get('ENABLE_ANALYZE') == 1 ? 'yes' : 'no',
         },
 ]

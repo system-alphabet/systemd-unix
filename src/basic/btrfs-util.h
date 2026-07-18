@@ -3,7 +3,7 @@
 
 #include <sys/stat.h>
 
-#include "basic-forward.h"
+#include "forward.h"
 
 typedef enum BtrfsSubvolFlags {
         BTRFS_SUBVOL_RO               = 1 << 0,

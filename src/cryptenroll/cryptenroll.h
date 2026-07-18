@@ -1,14 +1,16 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
+#include "crypto-util.h"
+#include "forward.h"
 #include "libfido2-util.h"
-#include "shared-forward.h"
 
 typedef enum EnrollType {
         ENROLL_PASSWORD,
         ENROLL_RECOVERY,
         ENROLL_PKCS11,
         ENROLL_FIDO2,
+        ENROLL_TPM2,
         _ENROLL_TYPE_MAX,
         _ENROLL_TYPE_INVALID = -EINVAL,
 } EnrollType;
@@ -17,6 +19,7 @@ typedef enum UnlockType {
         UNLOCK_PASSWORD,
         UNLOCK_KEYFILE,
         UNLOCK_FIDO2,
+        UNLOCK_TPM2,
         UNLOCK_EMPTY,
         UNLOCK_HEADLESS,
         _UNLOCK_TYPE_MAX,
@@ -30,6 +33,14 @@ typedef enum WipeScope {
         _WIPE_SCOPE_MAX,
         _WIPE_SCOPE_INVALID = -EINVAL,
 } WipeScope;
+
+typedef enum Tpm2WithPin {
+        TPM2_WITH_PIN_NO,
+        TPM2_WITH_PIN_YES,       /* with argon2id */
+        TPM2_WITH_PIN_DIRECT,    /* without argon2id (legacy mode, v251 and before) */
+        _TPM2_WITH_PIN_MAX,
+        _TPM2_WITH_PIN_INVALID = -EINVAL,
+} Tpm2WithPin;
 
 DECLARE_STRING_TABLE_LOOKUP(enroll_type, EnrollType);
 DECLARE_STRING_TABLE_LOOKUP(luks2_token_type, EnrollType);
@@ -47,6 +58,7 @@ typedef struct EnrollContext {
         /* Unlock side */
         char *unlock_keyfile;
         char *unlock_fido2_device;
+        char *unlock_tpm2_device;
         char *unlock_password;          /* used by Varlink; NULL on CLI path */
 
         /* New password to enroll (mechanism == password). When NULL the helpers fall back to
@@ -64,6 +76,22 @@ typedef struct EnrollContext {
 
         /* PKCS#11 */
         char *pkcs11_token_uri;
+
+        /* TPM2 */
+        char *tpm2_device;
+        uint32_t tpm2_seal_key_handle;
+        char *tpm2_device_key;
+        Tpm2PCRValue *tpm2_hash_pcr_values;
+        size_t tpm2_n_hash_pcr_values;
+        Tpm2WithPin tpm2_pin;
+        Argon2IdParameters tpm2_argon2id_params;
+        usec_t tpm2_argon2id_iter_time;
+        char *tpm2_public_key;
+        bool tpm2_load_public_key;
+        char *tpm2_public_key_policyref;
+        uint32_t tpm2_public_key_pcr_mask;
+        char *tpm2_signature;
+        char *tpm2_pcrlock;
 
         /* Wipe selection */
         int *wipe_slots;
@@ -89,6 +117,9 @@ typedef struct EnrollContext {
                 .unlock_type = UNLOCK_PASSWORD,                         \
                 .fido2_parameters_in_header = true,                     \
                 .fido2_lock_with = FIDO2ENROLL_PIN | FIDO2ENROLL_UP,    \
+                .tpm2_pin = _TPM2_WITH_PIN_INVALID,                     \
+                .tpm2_load_public_key = true,                           \
+                .tpm2_argon2id_params = ARGON2ID_PARAMETERS_DEFAULT,    \
                 .wipe_slots_scope = WIPE_EXPLICIT,                      \
                 .wipe_except_slot = -1,                                 \
                 .interactive = true,                                    \

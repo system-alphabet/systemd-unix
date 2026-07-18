@@ -325,7 +325,7 @@ executables += [
                         libc_wrapper_static,
                         libbasic_static,
                 ],
-                'install' : false,
+                'install' : 'no',
                 'type' : 'manual',
         },
         test_template + {
@@ -414,14 +414,14 @@ executables += [
         },
         test_template + {
                 'sources' : files('test-nss-hosts.c'),
-                'extract' : files('nss-test-util.c'),
+                'export' : files('nss-test-util.c'),
                 'dependencies' : libseccomp_cflags,
                 'conditions' : ['ENABLE_NSS'],
                 'timeout' : 120,
         },
         test_template + {
                 'sources' : files('test-nss-users.c'),
-                'objects' : ['test-nss-hosts'],
+                'import' : ['test-nss-hosts'],
                 'conditions' : ['ENABLE_NSS'],
         },
         test_template + {
@@ -514,7 +514,7 @@ if static_libsystemd != 'false'
                         'sources' : [test_libsystemd_sym_c],
                         'link_with' : install_libsystemd_static,
                         'build_by_default' : want_tests != 'false',
-                        'install' : install_tests,
+                        'install' : install_tests ? 'yes' : 'no',
                         'suite' : 'libsystemd',
                 },
         ]

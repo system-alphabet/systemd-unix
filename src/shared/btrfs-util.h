@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 #include "sd-id128.h"
-#include "shared-forward.h"
+#include "forward.h"
 
 #include "copy.h"
 #include "../basic/btrfs-util.h"      /* IWYU pragma: export */
@@ -104,7 +104,7 @@ static inline int btrfs_subvol_snapshot_at_full(
         if (!(flags & (BTRFS_SNAPSHOT_FALLBACK_COPY | BTRFS_SNAPSHOT_FALLBACK_DIRECTORY)))
                 return -ENOTTY;
 
-        CopyFlags copy_flags = COPY_REFLINK | COPY_SAME_MOUNT | COPY_HARDLINKS | COPY_ALL_XATTRS |
+        CopyFlags copy_flags = COPY_SAME_MOUNT | COPY_HARDLINKS | COPY_ALL_XATTRS |
                 (FLAGS_SET(flags, BTRFS_SNAPSHOT_SIGINT) ? COPY_SIGINT : 0) |
                 (FLAGS_SET(flags, BTRFS_SNAPSHOT_SIGTERM) ? COPY_SIGTERM : 0);
 

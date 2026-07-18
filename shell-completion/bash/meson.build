@@ -46,6 +46,7 @@ foreach item : [
         ['systemd-run',         ''],
         ['systemd-sysext',      'ENABLE_SYSEXT'],
         ['systemd-sysinstall',  'ENABLE_SYSINSTALL'],
+        ['systemd-sysupdate',   'ENABLE_SYSUPDATE'],
         ['systemd-vmspawn',     'ENABLE_VMSPAWN'],
         ['systemd-vpick',       ''],
         ['userdbctl',           'ENABLE_USERDB'],

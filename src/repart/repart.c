@@ -15,7 +15,6 @@
 
 #include "alloc-util.h"
 #include "ask-password-api.h"
-#include "bitfield.h"
 #include "blkid-util.h"
 #include "blockdev-list.h"
 #include "blockdev-util.h"
@@ -85,7 +84,8 @@
 #include "terminal-util.h"
 #include "time-util.h"
 #include "tmpfile-util.h"
-
+#include "tpm2-pcr.h"
+#include "tpm2-util.h"
 #include "utf8.h"
 #include "varlink-io.systemd.Repart.h"
 #include "varlink-util.h"
@@ -99,9 +99,6 @@
 
 /* We know up front we're never going to put more than this in a verity sig partition. */
 #define VERITY_SIG_SIZE (HARD_MIN_SIZE*4ULL)
-
-/* libfdisk takes off slightly more than 1M of the disk size when creating a GPT disk label */
-#define GPT_METADATA_SIZE (1044ULL*1024ULL)
 
 /* LUKS2 takes off 16M of the partition size with its metadata by default */
 #define LUKS2_METADATA_SIZE (16ULL*1024ULL*1024ULL)
@@ -187,6 +184,15 @@ static char *arg_private_key_source = NULL;
 static char *arg_certificate = NULL;
 static CertificateSourceType arg_certificate_source_type = OPENSSL_CERTIFICATE_SOURCE_FILE;
 static char *arg_certificate_source = NULL;
+static char *arg_tpm2_device = NULL;
+static uint32_t arg_tpm2_seal_key_handle = 0;
+static char *arg_tpm2_device_key = NULL;
+static Tpm2PCRValue *arg_tpm2_hash_pcr_values = NULL;
+static size_t arg_tpm2_n_hash_pcr_values = 0;
+static char *arg_tpm2_public_key = NULL;
+static char *arg_tpm2_public_key_policyref = NULL;
+static uint32_t arg_tpm2_public_key_pcr_mask = 0;
+static char *arg_tpm2_pcrlock = NULL;
 static bool arg_split = false;
 static GptPartitionType *arg_filter_partitions = NULL;
 static size_t arg_n_filter_partitions = 0;
@@ -209,6 +215,7 @@ static char *arg_generate_crypttab = NULL;
 static Set *arg_verity_settings = NULL;
 static bool arg_relax_copy_block_security = false;
 static bool arg_varlink = false;
+static int arg_cow = -1;
 static bool arg_eltorito = false;
 static char *arg_eltorito_system = NULL;
 static char *arg_eltorito_volume = NULL;
@@ -223,6 +230,12 @@ STATIC_DESTRUCTOR_REGISTER(arg_private_key, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_private_key_source, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_certificate, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_certificate_source, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_device, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_device_key, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_hash_pcr_values, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_public_key, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_public_key_policyref, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_pcrlock, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_filter_partitions, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_defer_partitions, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_image_policy, image_policy_freep);
@@ -261,6 +274,8 @@ typedef struct FreeArea FreeArea;
 typedef enum EncryptMode {
         ENCRYPT_OFF,
         ENCRYPT_KEY_FILE,
+        ENCRYPT_TPM2,
+        ENCRYPT_KEY_FILE_TPM2,
         _ENCRYPT_MODE_MAX,
         _ENCRYPT_MODE_INVALID = -EINVAL,
 } EncryptMode;
@@ -490,6 +505,8 @@ typedef struct Partition {
         char *default_subvolume;
         EncryptMode encrypt;
         struct iovec key;
+        Tpm2PCRValue *tpm2_hash_pcr_values;
+        size_t tpm2_n_hash_pcr_values;
         IntegrityMode integrity;
         IntegrityAlg integrity_alg;
         EncryptKDF encrypt_kdf;
@@ -602,6 +619,8 @@ static const char *append_mode_table[_APPEND_MODE_MAX] = {
 static const char *encrypt_mode_table[_ENCRYPT_MODE_MAX] = {
         [ENCRYPT_OFF] = "off",
         [ENCRYPT_KEY_FILE] = "key-file",
+        [ENCRYPT_TPM2] = "tpm2",
+        [ENCRYPT_KEY_FILE_TPM2] = "key-file+tpm2",
 };
 
 /* Going forward, the plan is to add two more modes:
@@ -829,6 +848,7 @@ static Partition* partition_free(Partition *p) {
         strv_free(p->make_symlinks);
         ordered_hashmap_free(p->subvolumes);
         free(p->default_subvolume);
+        free(p->tpm2_hash_pcr_values);
         free(p->verity_match_key);
         free(p->compression);
         free(p->compression_level);
@@ -875,6 +895,7 @@ static void partition_foreignize(Partition *p) {
         p->make_symlinks = strv_free(p->make_symlinks);
         p->subvolumes = ordered_hashmap_free(p->subvolumes);
         p->default_subvolume = mfree(p->default_subvolume);
+        p->tpm2_hash_pcr_values = mfree(p->tpm2_hash_pcr_values);
         p->verity_match_key = mfree(p->verity_match_key);
         p->compression = mfree(p->compression);
         p->compression_level = mfree(p->compression_level);
@@ -1629,23 +1650,14 @@ static bool context_grow_partitions_phase(
         return !try_again;
 }
 
-static void context_grow_partition_one(Context *context, FreeArea *a, Partition *p, uint64_t *span) {
+static void context_grow_partition_one(Context *context, Partition *p, uint64_t *span) {
         uint64_t m;
 
         assert(context);
-        assert(a);
         assert(p);
         assert(span);
 
-        if (*span == 0)
-                return;
-
-        if (p->allocated_to_area != a)
-                return;
-
-        if (PARTITION_IS_FOREIGN(p))
-                return;
-
+        assert(*span > 0);
         assert(p->new_size != UINT64_MAX);
 
         /* Calculate new size and align. */
@@ -1685,15 +1697,15 @@ static int context_grow_partitions_on_free_area(Context *context, FreeArea *a) {
                 if (context_grow_partitions_phase(context, a, phase, &span, &weight_sum))
                         phase++; /* go to the next phase */
 
-        /* We still have space left over? Donate to preceding partition if we have one */
-        if (span > 0 && a->after)
-                context_grow_partition_one(context, a, a->after, &span);
 
-        /* What? Even still some space left (maybe because there was no preceding partition, or it had a
-         * size limit), then let's donate it to whoever wants it. */
+        /* What? Even still some space left (because one partition had max_size < share
+         * and another had min_size > share), then let's donate it to whoever wants it. */
         if (span > 0)
                 LIST_FOREACH(partitions, p, context->partitions) {
-                        context_grow_partition_one(context, a, p, &span);
+                        if (p->allocated_to_area != a && p->padding_area != a)
+                                continue;
+
+                        context_grow_partition_one(context, p, &span);
                         if (span == 0)
                                 break;
                 }
@@ -1703,15 +1715,12 @@ static int context_grow_partitions_on_free_area(Context *context, FreeArea *a) {
                 Partition *last_partition = NULL;
 
                 LIST_FOREACH(partitions, p, context->partitions)
-                        if (p->allocated_to_area == a)
+                        if (p->allocated_to_area == a || p->padding_area == a)
                                 last_partition = p;
 
                 if (last_partition) {
                         assert(last_partition->new_padding != UINT64_MAX);
                         last_partition->new_padding += round_down_size(span, context->grain_size);
-                } else if (a->after) {
-                        assert(a->after->new_padding != UINT64_MAX);
-                        a->after->new_padding += round_down_size(span, context->grain_size);
                 }
         }
 
@@ -2120,7 +2129,7 @@ static int config_parse_copy_files(
         if (!isempty(p))
                 return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL), "Too many arguments: %s", rvalue);
 
-        CopyFlags flags = COPY_REFLINK|COPY_HOLES|COPY_MERGE|COPY_REPLACE|COPY_SIGINT|COPY_HARDLINKS|COPY_ALL_XATTRS|COPY_GRACEFUL_WARN|COPY_TRUNCATE|COPY_RESTORE_DIRECTORY_TIMESTAMPS;
+        CopyFlags flags = COPY_HOLES|COPY_MERGE|COPY_REPLACE|COPY_SIGINT|COPY_HARDLINKS|COPY_ALL_XATTRS|COPY_GRACEFUL_WARN|COPY_TRUNCATE|COPY_RESTORE_DIRECTORY_TIMESTAMPS;
         for (const char *opts = options;;) {
                 _cleanup_free_ char *word = NULL;
                 const char *val;
@@ -2677,7 +2686,9 @@ static int config_parse_encrypted_volume(
                 return 0;
         }
 
-        if (!filename_is_valid(volume)) {
+        if (isempty(volume))
+                volume = mfree(volume);
+        else if (!filename_is_valid(volume)) {
                 log_syntax(unit, LOG_WARNING, filename, line, 0,
                            "Volume name %s is not valid, ignoring", volume);
                 return 0;
@@ -2715,6 +2726,33 @@ static int config_parse_encrypted_volume(
         };
 
         return 0;
+}
+
+static int config_parse_tpm2_pcrs(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        Partition *partition = ASSERT_PTR(data);
+
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                /* Clear existing PCR values if empty */
+                partition->tpm2_hash_pcr_values = mfree(partition->tpm2_hash_pcr_values);
+                partition->tpm2_n_hash_pcr_values = 0;
+                return 0;
+        }
+
+        return tpm2_parse_pcr_argument_append(rvalue, &partition->tpm2_hash_pcr_values,
+                                              &partition->tpm2_n_hash_pcr_values);
 }
 
 static int parse_key_file(const char *filename, struct iovec *key) {
@@ -2924,6 +2962,7 @@ static int partition_read_definition(
                 { "Partition", "VerityHashBlockSizeBytes", config_parse_block_size,        0,                                  &p->verity_hash_block_size  },
                 { "Partition", "MountPoint",               config_parse_mountpoint,        0,                                  p                           },
                 { "Partition", "EncryptedVolume",          config_parse_encrypted_volume,  0,                                  p                           },
+                { "Partition", "TPM2PCRs",                 config_parse_tpm2_pcrs,         0,                                  p                           },
                 { "Partition", "KeyFile",                  config_parse_key_file,          0,                                  p                           },
                 { "Partition", "Integrity",                config_parse_integrity,         0,                                  &p->integrity               },
                 { "Partition", "IntegrityAlgorithm",       config_parse_integrity_alg,     0,                                  &p->integrity_alg           },
@@ -3069,7 +3108,7 @@ static int partition_read_definition(
                                   "Cannot format %s filesystem without source files, refusing.", p->format);
 
         if (p->verity != VERITY_OFF || p->encrypt != ENCRYPT_OFF) {
-                r = DLOPEN_CRYPTSETUP(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
+                r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
                 if (r < 0)
                         return log_syntax(NULL, LOG_ERR, path, 1, r,
                                           "libcryptsetup not found, Verity=/Encrypt= are not supported: %m");
@@ -3099,9 +3138,9 @@ static int partition_read_definition(
                                    verity_mode_to_string(p->verity));
         }
 
-        if (p->verity != VERITY_OFF && p->encrypt != ENCRYPT_OFF)
+        if (IN_SET(p->verity, VERITY_HASH, VERITY_SIG) && p->encrypt != ENCRYPT_OFF)
                 return log_syntax(NULL, LOG_ERR, path, 1, SYNTHETIC_ERRNO(EINVAL),
-                                  "Encrypting verity hash/data partitions is not supported.");
+                                  "Encrypting verity hash/signature partitions is not supported.");
 
         if (p->verity == VERITY_SIG && (p->size_min != UINT64_MAX || p->size_max != UINT64_MAX))
                 return log_syntax(NULL, LOG_ERR, path, 1, SYNTHETIC_ERRNO(EINVAL),
@@ -3236,10 +3275,12 @@ static int determine_current_padding(
                 struct fdisk_partition *p,
                 uint64_t secsz,
                 uint64_t grainsz,
-                uint64_t *ret) {
+                uint64_t *ret,
+                bool *ret_is_last_partition) {
 
         size_t n_partitions;
         uint64_t offset, next = UINT64_MAX;
+        bool is_last_partition = false;
 
         assert(c);
         assert(t);
@@ -3279,6 +3320,8 @@ static int determine_current_padding(
         }
 
         if (next == UINT64_MAX) {
+                is_last_partition = true;
+
                 /* No later partition? In that case check the end of the usable area */
                 next = sym_fdisk_get_last_lba(c);
                 assert(next < UINT64_MAX);
@@ -3295,6 +3338,9 @@ static int determine_current_padding(
         offset = round_up_size(offset, grainsz);
         next = round_down_size(next, grainsz);
 
+        if (ret_is_last_partition)
+                *ret_is_last_partition = is_last_partition;
+
         *ret = LESS_BY(next, offset); /* Saturated subtraction, rounding might have fucked things up */
         return 0;
 }
@@ -3304,7 +3350,7 @@ static int context_copy_from_one(Context *context, const char *src) {
         _cleanup_(fdisk_unref_contextp) struct fdisk_context *c = NULL;
         _cleanup_(fdisk_unref_tablep) struct fdisk_table *t = NULL;
         Partition *last = NULL;
-        unsigned long secsz, grainsz;
+        unsigned long secsz;
         size_t n_partitions;
         int r;
 
@@ -3323,7 +3369,6 @@ static int context_copy_from_one(Context *context, const char *src) {
                 return log_error_errno(r, "Failed to create fdisk context: %m");
 
         secsz = sym_fdisk_get_sector_size(c);
-        grainsz = sym_fdisk_get_grain_size(c);
 
         /* Insist on a power of two, and that it's a multiple of 512, i.e. the traditional sector size. */
         if (secsz < 512 || !ISPOWEROF2(secsz))
@@ -3345,6 +3390,7 @@ static int context_copy_from_one(Context *context, const char *src) {
                 uint64_t sz, start, padding;
                 sd_id128_t ptid, id;
                 GptPartitionType type;
+                bool is_last_partition;
 
                 p = sym_fdisk_table_get_partition(t, i);
                 if (!p)
@@ -3404,11 +3450,14 @@ static int context_copy_from_one(Context *context, const char *src) {
                 if (!np->split_name_format)
                         return log_oom();
 
-                r = determine_current_padding(c, t, p, secsz, grainsz, &padding);
+                /* Pass grain size of 1 to disable rounding by grain as we don't know the grain size
+                 * of the old image. We'll round paddings to the grain size of the new image later. */
+                r = determine_current_padding(c, t, p, secsz, /* grainsz= */ 1, &padding, &is_last_partition);
                 if (r < 0)
                         return r;
 
-                np->padding_min = np->padding_max = padding;
+                if (!is_last_partition)
+                        np->padding_min = np->padding_max = padding;
 
                 np->copy_blocks_path = strdup(src);
                 if (!np->copy_blocks_path)
@@ -3618,6 +3667,13 @@ static int context_read_definitions(Context *context) {
                 if (dp->minimize == MINIMIZE_OFF && !(dp->copy_blocks_path || dp->copy_blocks_auto))
                         return log_syntax(NULL, LOG_ERR, p->definition_path, 1, SYNTHETIC_ERRNO(EINVAL),
                                           "Minimize= set for verity hash partition but data partition does not set CopyBlocks= or Minimize=.");
+
+                /* The verity hash of an encrypted data partition covers the ciphertext, which is generated
+                 * with a fresh volume key only when the final image is built, hence it cannot be
+                 * precalculated for minimizing purposes. */
+                if (dp->encrypt != ENCRYPT_OFF)
+                        return log_syntax(NULL, LOG_ERR, p->definition_path, 1, SYNTHETIC_ERRNO(EINVAL),
+                                          "Minimize= cannot be set for verity hash partitions whose data partition is encrypted, use SizeMaxBytes= on the data partition instead.");
         }
 
         LIST_FOREACH(partitions, p, context->partitions) {
@@ -4004,7 +4060,14 @@ static int context_load_partition_table(Context *context) {
                                 pp->current_partition = p;
                                 sym_fdisk_ref_partition(p);
 
-                                r = determine_current_padding(c, t, p, secsz, grainsz, &pp->current_padding);
+                                r = determine_current_padding(
+                                                c,
+                                                t,
+                                                p,
+                                                secsz,
+                                                grainsz,
+                                                &pp->current_padding,
+                                                /* ret_is_last_partition= */ NULL);
                                 if (r < 0)
                                         return r;
 
@@ -4037,7 +4100,14 @@ static int context_load_partition_table(Context *context) {
                         np->current_partition = p;
                         sym_fdisk_ref_partition(p);
 
-                        r = determine_current_padding(c, t, p, secsz, grainsz, &np->current_padding);
+                        r = determine_current_padding(
+                                        c,
+                                        t,
+                                        p,
+                                        secsz,
+                                        grainsz,
+                                        &np->current_padding,
+                                        /* ret_is_last_partition= */ NULL);
                         if (r < 0)
                                 return r;
 
@@ -4688,7 +4758,7 @@ static int context_wipe_range(Context *context, uint64_t offset, uint64_t size) 
         assert(offset != UINT64_MAX);
         assert(size != UINT64_MAX);
 
-        r = DLOPEN_LIBBLKID(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        r = DLOPEN_LIBBLKID(LOG_ERR, required);
         if (r < 0)
                 return r;
 
@@ -5260,6 +5330,15 @@ static int partition_target_prepare(
         return 0;
 }
 
+static void partition_target_drop_decrypted(PartitionTarget *t) {
+        assert(t);
+
+        /* Deactivate the dm-crypt device again, so that subsequent access to the target reaches the
+         * encrypted data as it is stored on disk (i.e. the ciphertext). Requires the target to have been
+         * sync'ed first. */
+        t->decrypted = decrypted_partition_target_free(t->decrypted);
+}
+
 static int partition_target_grow(PartitionTarget *t, uint64_t size) {
         int r;
 
@@ -5319,7 +5398,7 @@ static int partition_target_sync(Context *context, Partition *p, PartitionTarget
                                                "Partition %" PRIu64 "'s contents (%s) don't fit in the partition (%s).",
                                                p->partno, FORMAT_BYTES(st.st_size), FORMAT_BYTES(p->new_size));
 
-                r = copy_bytes(t->fd, whole_fd, UINT64_MAX, COPY_REFLINK|COPY_HOLES|COPY_FSYNC|COPY_SEEK0_SOURCE);
+                r = copy_bytes(t->fd, whole_fd, UINT64_MAX, COPY_HOLES|COPY_FSYNC|COPY_SEEK0_SOURCE);
                 if (r < 0)
                         return log_error_errno(r, "Failed to copy bytes to partition: %m");
         } else {
@@ -5365,6 +5444,9 @@ static size_t dmcrypt_proper_key_size(Partition *p) {
 
 static int partition_encrypt(Context *context, Partition *p, PartitionTarget *target, bool offline, bool temporary) {
 #if HAVE_LIBCRYPTSETUP
+#if HAVE_TPM2
+        _cleanup_(erase_and_freep) char *base64_encoded = NULL;
+#endif
         _cleanup_fclose_ FILE *h = NULL;
         _cleanup_free_ char *hp = NULL, *vol = NULL, *dm_name = NULL;
         const char *passphrase = NULL;
@@ -5377,7 +5459,7 @@ static int partition_encrypt(Context *context, Partition *p, PartitionTarget *ta
         assert(p);
         assert(p->encrypt != ENCRYPT_OFF);
 
-        r = DLOPEN_CRYPTSETUP(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
+        r = DLOPEN_CRYPTSETUP(LOG_ERR, recommended);
         if (r < 0)
                 return r;
 
@@ -5550,7 +5632,7 @@ static int partition_encrypt(Context *context, Partition *p, PartitionTarget *ta
                         return log_oom();
         }
 
-        if (p->encrypt == ENCRYPT_KEY_FILE) {
+        if (IN_SET(p->encrypt, ENCRYPT_KEY_FILE, ENCRYPT_KEY_FILE_TPM2)) {
                 /* Use partition-specific key if available, otherwise fall back to global key */
                 struct iovec *iovec_key = arg_key.iov_base ? &arg_key : &p->key;
 
@@ -5568,7 +5650,216 @@ static int partition_encrypt(Context *context, Partition *p, PartitionTarget *ta
                 passphrase_size = iovec_key->iov_len;
         }
 
+        if (IN_SET(p->encrypt, ENCRYPT_TPM2, ENCRYPT_KEY_FILE_TPM2)) {
+#if HAVE_TPM2
+                _cleanup_(iovec_done) struct iovec pubkey = {}, srk = {};
+                _cleanup_(iovec_done_erase) struct iovec secret = {};
+                _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+                ssize_t base64_encoded_size;
+                int keyslot;
+                TPM2Flags flags = 0;
+                Tpm2PCRValue *pcr_values = arg_tpm2_n_hash_pcr_values > 0 ? arg_tpm2_hash_pcr_values : p->tpm2_hash_pcr_values;
+                size_t n_pcr_values = arg_tpm2_n_hash_pcr_values > 0 ? arg_tpm2_n_hash_pcr_values : p->tpm2_n_hash_pcr_values;
 
+                if (n_pcr_values == 0 &&
+                    arg_tpm2_public_key_pcr_mask == 0 &&
+                    !arg_tpm2_pcrlock)
+                        log_notice("Notice: encrypting future partition %" PRIu64 ", locking against TPM2 with an empty policy, i.e. without any state or access restrictions.\n"
+                                   "Use --tpm2-public-key=, --tpm2-pcrlock=, or --tpm2-pcrs= to enable one or more restrictions.", p->partno);
+
+                if (arg_tpm2_public_key_pcr_mask != 0) {
+                        r = tpm2_load_pcr_public_key(arg_tpm2_public_key, &pubkey.iov_base, &pubkey.iov_len);
+                        if (r < 0) {
+                                if (arg_tpm2_public_key || r != -ENOENT)
+                                        return log_error_errno(r, "Failed to read TPM PCR public key: %m");
+
+                                log_debug_errno(r, "Failed to read TPM2 PCR public key, proceeding without: %m");
+                                arg_tpm2_public_key_pcr_mask = 0;
+                        }
+                }
+
+                TPM2B_PUBLIC public;
+                if (iovec_is_set(&pubkey)) {
+                        r = tpm2_tpm2b_public_from_pem(pubkey.iov_base, pubkey.iov_len, &public);
+                        if (r < 0)
+                                return log_error_errno(r, "Could not convert public key to TPM2B_PUBLIC: %m");
+                }
+
+                _cleanup_(tpm2_pcrlock_policy_done) Tpm2PCRLockPolicy pcrlock_policy = {};
+                if (arg_tpm2_pcrlock) {
+                        r = tpm2_pcrlock_policy_load(arg_tpm2_pcrlock, &pcrlock_policy);
+                        if (r < 0)
+                                return r;
+
+                        flags |= TPM2_FLAGS_USE_PCRLOCK;
+                }
+
+                _cleanup_(tpm2_context_unrefp) Tpm2Context *tpm2_context = NULL;
+                TPM2B_PUBLIC device_key_public = {};
+                if (arg_tpm2_device_key) {
+                        r = tpm2_load_public_key_file(arg_tpm2_device_key, &device_key_public);
+                        if (r < 0)
+                                return r;
+
+                        if (!tpm2_pcr_values_has_all_values(pcr_values, n_pcr_values))
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                       "Must provide all PCR values when using TPM2 device key.");
+                } else {
+                        r = tpm2_context_new_or_warn(arg_tpm2_device, &tpm2_context);
+                        if (r < 0)
+                                return r;
+
+                        if (!tpm2_pcr_values_has_all_values(pcr_values, n_pcr_values)) {
+                                r = tpm2_pcr_read_missing_values(tpm2_context, pcr_values, n_pcr_values);
+                                if (r < 0)
+                                        return log_error_errno(r, "Could not read pcr values: %m");
+                        }
+                }
+
+                uint16_t hash_pcr_bank = 0;
+                uint32_t hash_pcr_mask = 0;
+                if (n_pcr_values > 0) {
+                        size_t hash_count;
+                        r = tpm2_pcr_values_hash_count(pcr_values, n_pcr_values, &hash_count);
+                        if (r < 0)
+                                return log_error_errno(r, "Could not get hash count: %m");
+
+                        if (hash_count > 1)
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Multiple PCR banks selected.");
+
+                        hash_pcr_bank = pcr_values[0].hash;
+                        r = tpm2_pcr_values_to_mask(pcr_values, n_pcr_values, hash_pcr_bank, &hash_pcr_mask);
+                        if (r < 0)
+                                return log_error_errno(r, "Could not get hash mask: %m");
+                }
+
+                TPM2B_DIGEST policy_hash[2] = {
+                        TPM2B_DIGEST_MAKE(NULL, TPM2_SHA256_DIGEST_SIZE),
+                        TPM2B_DIGEST_MAKE(NULL, TPM2_SHA256_DIGEST_SIZE),
+                };
+                size_t n_policy_hash = 1;
+
+                /* If both PCR public key unlock and pcrlock unlock is selected, then shard the encryption key. */
+                r = tpm2_calculate_sealing_policy(
+                                pcr_values,
+                                n_pcr_values,
+                                iovec_is_set(&pubkey) ? &public : NULL,
+                                iovec_is_set(&pubkey) ? arg_tpm2_public_key_policyref : NULL,
+                                /* use_pin= */ false,
+                                arg_tpm2_pcrlock && !iovec_is_set(&pubkey) ? &pcrlock_policy : NULL,
+                                policy_hash + 0);
+                if (r < 0)
+                        return log_error_errno(r, "Could not calculate sealing policy digest for shard 0: %m");
+
+                if (arg_tpm2_pcrlock && iovec_is_set(&pubkey)) {
+                        r = tpm2_calculate_sealing_policy(
+                                        pcr_values,
+                                        n_pcr_values,
+                                        /* public= */ NULL,      /* Turn this one off for the 2nd shard */
+                                        /* pubkey_policy_ref= */ NULL,
+                                        /* use_pin= */ false,
+                                        &pcrlock_policy,         /* But turn this one on */
+                                        policy_hash + 1);
+                        if (r < 0)
+                                return log_error_errno(r, "Could not calculate sealing policy digest for shard 1: %m");
+
+                        n_policy_hash++;
+                }
+
+                struct iovec *blobs = NULL;
+                size_t n_blobs = 0;
+                CLEANUP_ARRAY(blobs, n_blobs, iovec_array_free);
+
+                if (arg_tpm2_device_key) {
+                        if (n_policy_hash > 1)
+                                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
+                                                       "Combined signed PCR policies and pcrlock policies cannot be calculated offline, currently.");
+
+                        blobs = new0(struct iovec, 1);
+                        if (!blobs)
+                                return log_oom();
+
+                        n_blobs = 1;
+
+                        r = tpm2_calculate_seal(
+                                        arg_tpm2_seal_key_handle,
+                                        &device_key_public,
+                                        /* attributes= */ NULL,
+                                        /* secret= */ NULL,
+                                        policy_hash + 0,
+                                        /* pin= */ NULL,
+                                        &secret,
+                                        blobs + 0,
+                                        &srk);
+                } else
+                        r = tpm2_seal(tpm2_context,
+                                      arg_tpm2_seal_key_handle,
+                                      policy_hash,
+                                      n_policy_hash,
+                                      /* pin= */ NULL,
+                                      &secret,
+                                      &blobs,
+                                      &n_blobs,
+                                      /* ret_primary_alg= */ NULL,
+                                      &srk);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to seal to TPM2: %m");
+
+                base64_encoded_size = base64mem(secret.iov_base, secret.iov_len, &base64_encoded);
+                if (base64_encoded_size < 0)
+                        return log_error_errno(base64_encoded_size, "Failed to base64 encode secret key: %m");
+
+                r = cryptsetup_set_minimal_pbkdf(cd);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to set minimal PBKDF: %m");
+
+                keyslot = sym_crypt_keyslot_add_by_volume_key(
+                                cd,
+                                CRYPT_ANY_SLOT,
+                                /* volume_key= */ NULL,
+                                /* volume_key_size= */ volume_key_size,
+                                base64_encoded,
+                                base64_encoded_size);
+                if (keyslot < 0)
+                        return log_error_errno(keyslot, "Failed to add new TPM2 key: %m");
+
+                struct iovec policy_hash_as_iovec[2] = {
+                        IOVEC_MAKE(policy_hash[0].buffer, policy_hash[0].size),
+                        IOVEC_MAKE(policy_hash[1].buffer, policy_hash[1].size),
+                };
+
+                r = tpm2_make_luks2_json(
+                                keyslot,
+                                hash_pcr_mask,
+                                hash_pcr_bank,
+                                &pubkey,
+                                arg_tpm2_public_key_policyref,
+                                arg_tpm2_public_key_pcr_mask,
+                                /* primary_alg= */ 0,
+                                blobs,
+                                n_blobs,
+                                policy_hash_as_iovec,
+                                n_policy_hash,
+                                /* salt= */ NULL, /* no salt because tpm2_seal has no pin */
+                                &srk,
+                                &pcrlock_policy.nv_handle,
+                                flags,
+                                &(Argon2IdParameters) {},
+                                &v);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to prepare TPM2 JSON token object: %m");
+
+                r = cryptsetup_add_token_json(cd, v);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to add TPM2 JSON token to LUKS2 header: %m");
+
+                passphrase = base64_encoded;
+                passphrase_size = strlen(base64_encoded);
+#else
+                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
+                                       "Support for TPM2 enrollment not enabled.");
+#endif
+        }
 
         if (offline) {
                 r = sym_crypt_reencrypt_init_by_passphrase(
@@ -5711,9 +6002,12 @@ static int partition_format_verity_hash(
 
         (void) partition_hint(p, node, &hint);
 
-        r = DLOPEN_CRYPTSETUP(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
+        r = DLOPEN_CRYPTSETUP(LOG_ERR, recommended);
         if (r < 0)
                 return r;
+
+        if (p->partno != UINT64_MAX)
+                log_info("Calculating Verity protection data for future partition %" PRIu64 "...", p->partno);
 
         if (!node) {
                 r = partition_target_prepare(context, p, p->new_size, /* need_path= */ true, &t);
@@ -5813,7 +6107,7 @@ static int sign_verity_roothash(
         assert(iovec_is_set(roothash));
         assert(ret_signature);
 
-        r = DLOPEN_LIBCRYPTO(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_RECOMMENDED);
+        r = DLOPEN_LIBCRYPTO(LOG_ERR, recommended);
         if (r < 0)
                 return r;
 
@@ -6096,7 +6390,21 @@ static int context_copy_blocks(Context *context) {
                                 return log_error_errno(errno, "Failed to seek to copy blocks offset in %s: %m", p->copy_blocks_path);
                 }
 
-                r = copy_bytes_full(p->copy_blocks_fd, partition_target_fd(t), p->copy_blocks_size, COPY_REFLINK, /* ret_remains= */ NULL, /* ret_remains_size= */ NULL, progress_bytes, p);
+                /* We call copy_bytes_full() instead of copy_file_range() directly, because copy_file_range()
+                 * needs to be called with a size limit to allow for progress updates. But we don't want that
+                 * for cloning, we want one big massive reflink if possible, and unfortunately we can't know
+                 * if copy_file_range() will do reflink or not, so we can't call it without the size limit.
+                 * Hence, call copy_bytes_full(), which tries FICLONE/BTRFS_IOC_CLONE first to do one big
+                 * clone, and then falls back to copying in chunks. */
+                r = copy_bytes_full(
+                                p->copy_blocks_fd,
+                                partition_target_fd(t),
+                                p->copy_blocks_size,
+                                /* copy_flags= */ 0,
+                                /* ret_remains= */ NULL,
+                                /* ret_remains_size= */ NULL,
+                                progress_bytes,
+                                p);
                 clear_progress_bar(/* prefix= */ NULL);
                 if (r < 0)
                         return log_error_errno(r, "Failed to copy in data from '%s': %m", p->copy_blocks_path);
@@ -6122,6 +6430,11 @@ static int context_copy_blocks(Context *context) {
                                  p->partno, FORMAT_TIMESPAN(time_spent, 0));
 
                 if (p->siblings[VERITY_HASH] && !partition_defer(context, p->siblings[VERITY_HASH])) {
+                        /* The verity hash must cover the partition contents as stored on disk, i.e. the
+                         * ciphertext if the partition is encrypted, hence tear down the dm-crypt device
+                         * first. */
+                        partition_target_drop_decrypted(t);
+
                         r = partition_format_verity_hash(context, p->siblings[VERITY_HASH],
                                                          /* node= */ NULL, partition_target_path(t));
                         if (r < 0)
@@ -6620,7 +6933,7 @@ static int do_copy_files(Context *context, Partition *p, const char *root) {
                         if (tfd < 0)
                                 return log_error_errno(errno, "Failed to create target file '%s': %m", line->target);
 
-                        r = copy_bytes(sfd, tfd, UINT64_MAX, COPY_REFLINK|COPY_HOLES|COPY_SIGINT|COPY_TRUNCATE);
+                        r = copy_bytes(sfd, tfd, UINT64_MAX, COPY_HOLES|COPY_SIGINT|COPY_TRUNCATE);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to copy '%s' to '%s%s': %m", line->source, strempty(arg_copy_source), line->target);
 
@@ -6905,7 +7218,7 @@ static int partition_populate_filesystem(Context *context, Partition *p, const c
          * appear in the host namespace. Hence we fork a child that has its own file system namespace and
          * detached mount propagation. */
 
-        (void) DLOPEN_LIBMOUNT(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        (void) DLOPEN_LIBMOUNT(LOG_DEBUG, required);
 
         r = pidref_safe_fork(
                         "(sd-copy)",
@@ -7311,6 +7624,11 @@ static int context_mkfs(Context *context) {
                         return r;
 
                 if (p->siblings[VERITY_HASH] && !partition_defer(context, p->siblings[VERITY_HASH])) {
+                        /* The verity hash must cover the partition contents as stored on disk, i.e. the
+                         * ciphertext if the partition is encrypted, hence tear down the dm-crypt device
+                         * first. */
+                        partition_target_drop_decrypted(t);
+
                         r = partition_format_verity_hash(context, p->siblings[VERITY_HASH],
                                                          /* node= */ NULL, partition_target_path(t));
                         if (r < 0)
@@ -7893,7 +8211,7 @@ static int context_split(Context *context) {
                         if (r < 0)
                                 return log_error_errno(r, "Failed to write to split partition %s: %m", p->split_path);
                 } else {
-                        r = copy_bytes(fd, fdt, p->new_size, COPY_REFLINK|COPY_HOLES|COPY_TRUNCATE);
+                        r = copy_bytes(fd, fdt, p->new_size, COPY_HOLES|COPY_TRUNCATE);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to copy to split partition %s: %m", p->split_path);
                 }
@@ -8536,7 +8854,7 @@ static int resolve_copy_blocks_auto_candidate(
                 return log_error_errno(r, "Failed to open block device " DEVNUM_FORMAT_STR ": %m",
                                        DEVNUM_FORMAT_VAL(whole_devno));
 
-        r = DLOPEN_LIBBLKID(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        r = DLOPEN_LIBBLKID(LOG_ERR, required);
         if (r < 0)
                 return r;
 
@@ -9900,6 +10218,7 @@ static int parse_argv(int argc, char *argv[]) {
         assert(argv);
 
         OptionParser opts = { argc, argv };
+        bool auto_public_key_pcr_mask = true, auto_pcrlock = true;
         int r;
 
         FOREACH_OPTION_OR_RETURN(c, &opts)
@@ -9953,6 +10272,13 @@ static int parse_argv(int argc, char *argv[]) {
                 OPTION_LONG("discard", "BOOL",
                             "Whether to discard backing blocks for new partitions"):
                         r = parse_boolean_argument("--discard=", opts.arg, &arg_discard);
+                        if (r < 0)
+                                return r;
+                        break;
+
+                OPTION_LONG("cow", "BOOL|auto",
+                            "Whether to enable copy-on-write for newly created image files"):
+                        r = parse_tristate_argument_with_auto("--cow=", opts.arg, &arg_cow);
                         if (r < 0)
                                 return r;
                         break;
@@ -10170,6 +10496,81 @@ static int parse_argv(int argc, char *argv[]) {
                         r = parse_key_file(opts.arg, &arg_key);
                         if (r < 0)
                                 return r;
+                        break;
+
+                OPTION_LONG("tpm2-device", "PATH",
+                            "Path to TPM2 device node to use"): {
+                        _cleanup_free_ char *device = NULL;
+
+                        if (streq(opts.arg, "list"))
+                                return tpm2_list_devices(/* legend= */ true, /* quiet= */ false);
+
+                        if (!streq(opts.arg, "auto")) {
+                                device = strdup(opts.arg);
+                                if (!device)
+                                        return log_oom();
+                        }
+
+                        free(arg_tpm2_device);
+                        arg_tpm2_device = TAKE_PTR(device);
+                        break;
+                }
+
+                OPTION_LONG("tpm2-device-key", "PATH",
+                            "Enroll a TPM2 device using its public key"):
+                        r = parse_path_argument(opts.arg, /* suppress_root= */ false, &arg_tpm2_device_key);
+                        if (r < 0)
+                                return r;
+
+                        break;
+
+                OPTION_LONG("tpm2-seal-key-handle", "HANDLE",
+                            "Specify handle of key to use for sealing"):
+                        r = safe_atou32_full(opts.arg, 16, &arg_tpm2_seal_key_handle);
+                        if (r < 0)
+                                return log_error_errno(r, "Could not parse TPM2 seal key handle index '%s': %m", opts.arg);
+
+                        break;
+
+                OPTION_LONG("tpm2-pcrs", "PCR1+PCR2+…",
+                            "TPM2 PCR indexes to use for TPM2 enrollment"):
+                        r = tpm2_parse_pcr_argument_append(opts.arg, &arg_tpm2_hash_pcr_values, &arg_tpm2_n_hash_pcr_values);
+                        if (r < 0)
+                                return r;
+
+                        break;
+
+                OPTION_LONG("tpm2-public-key", "PATH",
+                            "Enroll signed TPM2 PCR policy against PEM public key"):
+                        r = parse_path_argument(opts.arg, /* suppress_root= */ false, &arg_tpm2_public_key);
+                        if (r < 0)
+                                return r;
+
+                        break;
+
+                OPTION_LONG("tpm2-public-key-policyref", "STRING",
+                            "Enroll signed TPM2 PCR policy with the specified policy reference"):
+                        r = free_and_strdup_warn(&arg_tpm2_public_key_policyref, opts.arg);
+                        if (r < 0)
+                                return r;
+                        break;
+
+                OPTION_LONG("tpm2-public-key-pcrs", "PCR1+PCR2+…",
+                            "Enroll signed TPM2 PCR policy for specified TPM2 PCRs"):
+                        auto_public_key_pcr_mask = false;
+                        r = tpm2_parse_pcr_argument_to_mask(opts.arg, &arg_tpm2_public_key_pcr_mask);
+                        if (r < 0)
+                                return r;
+
+                        break;
+
+                OPTION_LONG("tpm2-pcrlock", "PATH",
+                            "Specify pcrlock policy to lock against"):
+                        r = parse_path_argument(opts.arg, /* suppress_root= */ false, &arg_tpm2_pcrlock);
+                        if (r < 0)
+                                return r;
+
+                        auto_pcrlock = false;
                         break;
 
                 OPTION_GROUP("Partition Control"): {}
@@ -10452,6 +10853,22 @@ static int parse_argv(int argc, char *argv[]) {
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                        "A path to an image file must be specified when --split is used.");
 
+        if (auto_pcrlock) {
+                assert(!arg_tpm2_pcrlock);
+
+                r = tpm2_pcrlock_search_file(NULL, NULL, &arg_tpm2_pcrlock);
+                if (r < 0) {
+                        if (r != -ENOENT)
+                                log_warning_errno(r, "Search for pcrlock.json failed, assuming it does not exist: %m");
+                } else
+                        log_debug("Automatically using pcrlock policy '%s'.", arg_tpm2_pcrlock);
+        }
+
+        if (auto_public_key_pcr_mask) {
+                assert(arg_tpm2_public_key_pcr_mask == 0);
+                arg_tpm2_public_key_pcr_mask = INDEX_TO_MASK(uint32_t, TPM2_PCR_KERNEL_BOOT);
+        }
+
         if (arg_pretty < 0 && isatty_safe(STDOUT_FILENO))
                 arg_pretty = true;
 
@@ -10652,7 +11069,12 @@ static int find_root(Context *context) {
                         if (!s)
                                 return log_oom();
 
-                        fd = xopenat_full(AT_FDCWD, arg_node, open_flags|O_CREAT|O_EXCL|O_NOFOLLOW, XO_NOCOW, 0666);
+                        fd = xopenat_full(
+                                        AT_FDCWD,
+                                        arg_node,
+                                        open_flags|O_CREAT|O_EXCL|O_NOFOLLOW,
+                                        arg_cow < 0 ? 0 : (arg_cow > 0 ? XO_COW : XO_NOCOW),
+                                        0666);
                         if (fd < 0)
                                 return log_error_errno(fd, "Failed to create '%s': %m", arg_node);
 
@@ -10881,12 +11303,26 @@ static int determine_auto_size(
 
         assert(c);
 
-        minimal_size = round_up_size(GPT_METADATA_SIZE, 4096);
+        /* At the beginning of the image, some size is reserved for:
+         * Protective MBR (1 block) + GPT header (1 block) +
+         * Primary partition table (minimum 16KiB) = (2 * c->sector_size) + (16 * 1024)
+         *
+         * Note that fdisk usually sets the first usable block to 1MiB (at least for
+         * disks larger than 4MiB), so we just force it to that as well. If fdisk
+         * decides to set it lower, we made the image a bit larger than necessary,
+         * if it sets it higher, we'd have a problem. */
+        minimal_size = 1024 * 1024;
+        /* Of course need to align the start to our grain size as well */
+        minimal_size = round_up_size(minimal_size, c->grain_size);
+
+        /* At the end of the image, there is size reserved for:
+         * Secondary partition table (minimum 16KiB) + GPT header (1 block) */
+        minimal_size += (16 * 1024) + c->sector_size;
 
         if (c->from_scratch)
                 current_size = 0;
         else
-                current_size = round_up_size(GPT_METADATA_SIZE, 4096);
+                current_size = minimal_size;
 
         foreign_size = 0;
 
@@ -11260,13 +11696,16 @@ static int run(int argc, char *argv[]) {
         bool node_is_our_loop = false;
         int r;
 
+        LIBSELINUX_NOTE(recommended);
+        TPM2_NOTE(suggested);
+
         log_setup();
 
         r = parse_argv(argc, argv);
         if (r <= 0)
                 return r;
 
-        r = DLOPEN_FDISK(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        r = DLOPEN_FDISK(LOG_ERR, required);
         if (r < 0)
                 return r;
 

@@ -16,7 +16,9 @@
 #include "cryptsetup-fido2.h"
 #include "cryptsetup-keyfile.h"
 #include "cryptsetup-pkcs11.h"
+#include "cryptsetup-tpm2.h"
 #include "cryptsetup-util.h"
+#include "dlopen-note.h"
 #include "efi-api.h"
 #include "efi-loader.h"
 #include "efivars.h"
@@ -46,6 +48,8 @@
 #include "string-util.h"
 #include "strv.h"
 #include "time-util.h"
+#include "tpm2-pcr.h"
+#include "tpm2-util.h"
 #include "verbs.h"
 
 /* internal helper */
@@ -64,6 +68,7 @@ typedef enum PassphraseType {
 } PassphraseType;
 
 typedef enum TokenType {
+        TOKEN_TPM2,
         TOKEN_FIDO2,
         TOKEN_PKCS11,
         _TOKEN_TYPE_MAX,
@@ -110,7 +115,16 @@ static char *arg_fido2_rp_id = NULL;
  * not read FIDO2 metadata off the LUKS2 header, default to the systemd 248 logic, where we
  * use PIN + UP when needed, and do not configure UV at all. */
 static Fido2EnrollFlags arg_fido2_manual_flags = FIDO2ENROLL_PIN_IF_NEEDED | FIDO2ENROLL_UP_IF_NEEDED | FIDO2ENROLL_UV_OMIT;
+static char *arg_tpm2_device = NULL; /* These and the following fields are about locking an encrypted volume to the local TPM */
+static bool arg_tpm2_device_auto = false;
+static uint32_t arg_tpm2_pcr_mask = UINT32_MAX;
+static char *arg_tpm2_signature = NULL;
+static bool arg_tpm2_pin = false;
+static char *arg_tpm2_pcrlock = NULL;
 static usec_t arg_token_timeout_usec = 30*USEC_PER_SEC;
+static unsigned arg_tpm2_measure_pcr = UINT_MAX; /* This and the following field is about measuring the unlocked volume key to the local TPM */
+static char **arg_tpm2_measure_banks = NULL;
+static char *arg_tpm2_measure_keyslot_nvpcr = NULL;
 static char *arg_link_keyring = NULL;
 static char *arg_link_key_type = NULL;
 static char *arg_link_key_description = NULL;
@@ -124,7 +138,11 @@ STATIC_DESTRUCTOR_REGISTER(arg_pkcs11_uri, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_fido2_device, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_fido2_cid, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_fido2_rp_id, freep);
-
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_device, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_signature, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_measure_banks, strv_freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_measure_keyslot_nvpcr, freep);
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_pcrlock, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_link_keyring, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_link_key_type, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_link_key_description, freep);
@@ -139,6 +157,7 @@ static const char* const passphrase_type_table[_PASSPHRASE_TYPE_MAX] = {
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP_TO_STRING(passphrase_type, PassphraseType);
 
 static const char* const token_type_table[_TOKEN_TYPE_MAX] = {
+        [TOKEN_TPM2]   = "tpm2",
         [TOKEN_FIDO2]  = "fido2",
         [TOKEN_PKCS11] = "pkcs11",
 };
@@ -448,21 +467,116 @@ static int parse_one_option(const char *option) {
                 SET_FLAG(arg_fido2_manual_flags, FIDO2ENROLL_UV, r);
 
         } else if ((val = startswith(option, "tpm2-device="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+                if (streq(val, "auto")) {
+                        arg_tpm2_device = mfree(arg_tpm2_device);
+                        arg_tpm2_device_auto = true;
+                } else {
+                        r = free_and_strdup(&arg_tpm2_device, val);
+                        if (r < 0)
+                                return log_oom();
+
+                        arg_tpm2_device_auto = false;
+                }
+
         } else if ((val = startswith(option, "tpm2-pcrs="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+                r = tpm2_parse_pcr_argument_to_mask(val, &arg_tpm2_pcr_mask);
+                if (r < 0)
+                        return r;
+
         } else if ((val = startswith(option, "tpm2-signature="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+                if (!path_is_absolute(val))
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                               "TPM2 signature path \"%s\" is not absolute, refusing.", val);
+
+                r = free_and_strdup(&arg_tpm2_signature, val);
+                if (r < 0)
+                        return log_oom();
+
         } else if ((val = startswith(option, "tpm2-pin="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+                r = parse_boolean(val);
+                if (r < 0) {
+                        log_warning_errno(r, "Failed to parse %s, ignoring: %m", option);
+                        return 0;
+                }
+
+                arg_tpm2_pin = r;
+
         } else if ((val = startswith(option, "tpm2-pcrlock="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+                if (!path_is_absolute(val))
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                               "TPM2 pcrlock policy path \"%s\" is not absolute, refusing.", val);
+
+                r = free_and_strdup(&arg_tpm2_pcrlock, val);
+                if (r < 0)
+                        return log_oom();
+
         } else if ((val = startswith(option, "tpm2-measure-pcr="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+                unsigned pcr;
+
+                r = safe_atou(val, &pcr);
+                if (r < 0) {
+                        r = parse_boolean(val);
+                        if (r < 0) {
+                                log_warning_errno(r, "Failed to parse %s, ignoring: %m", option);
+                                return 0;
+                        }
+
+                        pcr = r ? TPM2_PCR_SYSTEM_IDENTITY : UINT_MAX;
+                } else if (!TPM2_PCR_INDEX_VALID(pcr)) {
+                        log_warning("Selected TPM index for measurement %u outside of allowed range 0…%u, ignoring.", pcr, TPM2_PCRS_MAX-1);
+                        return 0;
+                }
+
+                arg_tpm2_measure_pcr = pcr;
+
         } else if ((val = startswith(option, "tpm2-measure-bank="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+#if HAVE_OPENSSL
+                _cleanup_strv_free_ char **l = NULL;
+
+                r = DLOPEN_LIBCRYPTO(LOG_ERR, recommended);
+                if (r < 0)
+                        return r;
+
+                l = strv_split(val, ":");
+                if (!l)
+                        return log_oom();
+
+                STRV_FOREACH(i, l) {
+                        const EVP_MD *implementation;
+
+                        implementation = sym_EVP_get_digestbyname(*i);
+                        if (!implementation)
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Unknown bank '%s', refusing.", val);
+
+                        if (strv_extend(&arg_tpm2_measure_banks, sym_EVP_MD_get0_name(implementation)) < 0)
+                                return log_oom();
+                }
+#else
+                log_error("Build lacks OpenSSL support, cannot measure to PCR banks, ignoring: %s", option);
+#endif
+
         } else if ((val = startswith(option, "tpm2-measure-keyslot-nvpcr="))) {
-                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support not compiled in.");
+
+                r = isempty(val) ? false : parse_boolean(val);
+                if (r == 0) {
+                        arg_tpm2_measure_keyslot_nvpcr = mfree(arg_tpm2_measure_keyslot_nvpcr);
+                        return 0;
+                }
+                if (r > 0)
+                        val = "cryptsetup";
+                else if (!tpm2_nvpcr_name_is_valid(val)) {
+                        log_warning("Invalid NvPCR name, ignoring: %s", option);
+                        return 0;
+                }
+
+                if (free_and_strdup(&arg_tpm2_measure_keyslot_nvpcr, val) < 0)
+                        return log_oom();
 
         } else if ((val = startswith(option, "try-empty-password="))) {
 
@@ -900,6 +1014,154 @@ static int get_password(
         return 0;
 }
 
+static int measure_volume_key(
+                struct crypt_device *cd,
+                const char *name,
+                const void *volume_key,
+                size_t volume_key_size) {
+
+        int r;
+
+        assert(cd);
+        assert(name);
+        assert(volume_key);
+        assert(volume_key_size > 0);
+
+        if (arg_tpm2_measure_pcr == UINT_MAX) {
+                log_debug("Not measuring volume key, deactivated.");
+                return 0;
+        }
+
+        r = efi_measured_os(LOG_WARNING);
+        if (r < 0)
+                return r;
+        if (r == 0) {
+                log_debug("OS measurements not explicitly requested and kernel stub did not measure kernel image into the expected PCR, skipping userspace volume key measurement, too.");
+                return 0;
+        }
+
+#if HAVE_TPM2
+        _cleanup_(tpm2_context_unrefp) Tpm2Context *c = NULL;
+        r = tpm2_context_new_or_warn(arg_tpm2_device, &c);
+        if (r < 0)
+                return r;
+
+        _cleanup_strv_free_ char **l = NULL;
+        if (strv_isempty(arg_tpm2_measure_banks)) {
+                r = tpm2_get_good_pcr_banks_strv(c, UINT32_C(1) << arg_tpm2_measure_pcr, &l);
+                if (r < 0)
+                        return log_error_errno(r, "Could not verify pcr banks: %m");
+        }
+
+        _cleanup_free_ char *joined = strv_join(l ?: arg_tpm2_measure_banks, ", ");
+        if (!joined)
+                return log_oom();
+
+        /* Note: we don't directly measure the volume key, it might be a security problem to send an
+         * unprotected direct hash of the secret volume key over the wire to the TPM. Hence let's instead
+         * send a HMAC signature instead. */
+
+        _cleanup_free_ char *prefix = NULL;
+
+        /* Note: what is extended to the SHA256 bank here must match the expected hash of 'fixate-volume-key='
+         * calculated by cryptsetup_get_volume_key_id(). */
+        r = cryptsetup_get_volume_key_prefix(cd, name, &prefix);
+        if (r)
+                return log_error_errno(r, "Could not verify pcr banks: %m");
+
+        r = tpm2_pcr_extend_bytes(
+                        c,
+                        /* banks= */ l ?: arg_tpm2_measure_banks,
+                        /* pcr_index = */ arg_tpm2_measure_pcr,
+                        /* data = */ &IOVEC_MAKE_STRING(prefix),
+                        /* secret = */ &IOVEC_MAKE(volume_key, volume_key_size),
+                        /* event_type = */ TPM2_EVENT_VOLUME_KEY,
+                        /* description = */ prefix);
+        if (r < 0)
+                return log_error_errno(r, "Could not extend PCR: %m");
+
+        log_struct(LOG_INFO,
+                   LOG_MESSAGE_ID(SD_MESSAGE_TPM_PCR_EXTEND_STR),
+                   LOG_MESSAGE("Successfully extended PCR index %u with '%s' and volume key (banks %s).", arg_tpm2_measure_pcr, prefix, joined),
+                   LOG_ITEM("MEASURING=%s", prefix),
+                   LOG_ITEM("PCR=%u", arg_tpm2_measure_pcr),
+                   LOG_ITEM("BANKS=%s", joined));
+
+        return 0;
+#else
+        return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support disabled, not measuring volume key.");
+#endif
+}
+
+static int measure_keyslot(
+                struct crypt_device *cd,
+                const char *name,
+                const char *mechanism,
+                int keyslot) {
+
+#if HAVE_TPM2
+        int r;
+#endif
+        assert(cd);
+        assert(name);
+
+        if (!arg_tpm2_measure_keyslot_nvpcr) {
+                log_debug("Not measuring unlock keyslot, deactivated.");
+                return 0;
+        }
+
+#if HAVE_TPM2
+        r = efi_measured_os(LOG_WARNING);
+        if (r < 0)
+                return r;
+        if (r == 0) {
+                log_debug("OS measurements not explicitly requested and kernel stub did not measure kernel image into the expected PCR, skipping userspace key slot measurement, too.");
+                return 0;
+        }
+
+        _cleanup_(tpm2_context_unrefp) Tpm2Context *c = NULL;
+        r = tpm2_context_new_or_warn(arg_tpm2_device, &c);
+        if (r < 0)
+                return r;
+
+        _cleanup_free_ char *escaped = NULL;
+        escaped = xescape(name, ":"); /* avoid ambiguity around ":" once we join things below */
+        if (!escaped)
+                return log_oom();
+
+        _cleanup_free_ char *k = NULL;
+        if (keyslot >= 0 && asprintf(&k, "%i", keyslot) < 0)
+                return log_oom();
+
+        _cleanup_free_ char *s = NULL;
+        s = strjoin("cryptsetup-keyslot:", escaped, ":", strempty(sym_crypt_get_uuid(cd)), ":", strempty(mechanism), ":", strempty(k));
+        if (!s)
+                return log_oom();
+
+        r = tpm2_nvpcr_extend_bytes(
+                        c,
+                        /* session= */ NULL,
+                        arg_tpm2_measure_keyslot_nvpcr,
+                        &IOVEC_MAKE_STRING(s),
+                        /* secret= */ NULL,
+                        /* sync_secondary_anchor= */ false,
+                        TPM2_EVENT_KEYSLOT,
+                        s);
+        if (r < 0)
+                return log_error_errno(r, "Could not extend NvPCR: %m");
+
+        log_struct(LOG_INFO,
+                   "MESSAGE_ID=" SD_MESSAGE_TPM_NVPCR_EXTEND_STR,
+                   LOG_MESSAGE("Successfully extended NvPCR index '%s' with '%s'.", arg_tpm2_measure_keyslot_nvpcr, s),
+                   "MEASURING=%s", s,
+                   "NVPCR=%s", arg_tpm2_measure_keyslot_nvpcr);
+
+        return 0;
+#else
+        return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "TPM2 support disabled, not measuring keyslot.");
+#endif
+}
+
 static int log_external_activation(int r, const char *volume) {
         assert(volume);
 
@@ -921,7 +1183,7 @@ static int measured_crypt_activate_by_volume_key(
         assert(cd);
         assert(name);
 
-        /* A wrapper around crypt_activate_by_volume_key() which checks volume key digest if requested. */
+        /* A wrapper around crypt_activate_by_volume_key() which also measures to a PCR if that's requested. */
 
         /* First, check if volume key digest matches the expectation. */
         if (arg_fixate_volume_key) {
@@ -948,6 +1210,17 @@ static int measured_crypt_activate_by_volume_key(
         if (r < 0)
                 return r;
 
+        if (arg_tpm2_measure_pcr == UINT_MAX) {
+                log_debug("Not measuring volume key, deactivated.");
+                return 0;
+        }
+
+        if (volume_key_size > 0)
+                (void) measure_volume_key(cd, name, volume_key, volume_key_size); /* OK if fails */
+        else
+                log_debug("Not measuring volume key, none specified.");
+
+        (void) measure_keyslot(cd, name, mechanism, keyslot); /* ditto */
         return r;
 }
 
@@ -966,12 +1239,12 @@ static int measured_crypt_activate_by_passphrase(
 
         assert(cd);
 
-        /* A wrapper around crypt_activate_by_passphrase() which checks volume key digest if requested.
-         * Note that we may need the volume key for the comparison, and crypt_activate_by_passphrase()
-         * doesn't give us access to this. Hence, we operate indirectly, and retrieve the volume key
-         * first, and then activate through that. */
+        /* A wrapper around crypt_activate_by_passphrase() which also measures to a PCR if that's
+         * requested. Note that we may need the volume key for the measurement and/or for the comparison, and
+         * crypt_activate_by_passphrase() doesn't give us access to this. Hence, we operate indirectly, and
+         * retrieve the volume key first, and then activate through that. */
 
-        if (!arg_fixate_volume_key)
+        if (arg_tpm2_measure_pcr == UINT_MAX && !arg_fixate_volume_key)
                 goto shortcut;
 
         r = sym_crypt_get_volume_key_size(cd);
@@ -999,6 +1272,7 @@ shortcut:
         if (keyslot < 0)
                 return keyslot;
 
+        (void) measure_keyslot(cd, name, mechanism, keyslot);
         return keyslot;
 }
 
@@ -1206,9 +1480,17 @@ static int run_security_device_monitor(
 
 static bool use_token_plugins(void) {
 
+#if HAVE_TPM2
+        /* Currently, there's no way for us to query the volume key when plugins are used. Hence don't use
+         * plugins, if measurement has been requested. */
+        if (arg_tpm2_measure_pcr != UINT_MAX)
+                return false;
+        if (arg_tpm2_measure_keyslot_nvpcr)
+                return false;
         /* Volume key is also needed if the expected key id is set */
         if (arg_fixate_volume_key)
                 return false;
+#endif
 
         /* Disable tokens if we're in FIDO2 mode with manual parameters. */
         if (arg_fido2_cid)
@@ -1659,6 +1941,330 @@ static int attach_luks_or_plain_or_bitlk_by_pkcs11(
         return 0;
 }
 
+static int make_tpm2_device_monitor(
+                sd_event **ret_event,
+                sd_device_monitor **ret_monitor) {
+
+        _cleanup_(sd_device_monitor_unrefp) sd_device_monitor *monitor = NULL;
+        _cleanup_(sd_event_unrefp) sd_event *event = NULL;
+        int r;
+
+        assert(ret_event);
+        assert(ret_monitor);
+
+        r = sd_event_default(&event);
+        if (r < 0)
+                return log_error_errno(r, "Failed to allocate event loop: %m");
+
+        r = sd_event_add_time_relative(event, NULL, CLOCK_MONOTONIC, arg_token_timeout_usec, USEC_PER_SEC, NULL, INT_TO_PTR(-ETIMEDOUT));
+        if (r < 0)
+                return log_error_errno(r, "Failed to install timeout event source: %m");
+
+        r = sd_device_monitor_new(&monitor);
+        if (r < 0)
+                return log_error_errno(r, "Failed to allocate device monitor: %m");
+
+        (void) sd_device_monitor_set_description(monitor, "tpmrm");
+
+        r = sd_device_monitor_filter_add_match_subsystem_devtype(monitor, "tpmrm", NULL);
+        if (r < 0)
+                return log_error_errno(r, "Failed to configure device monitor: %m");
+
+        r = sd_device_monitor_attach_event(monitor, event);
+        if (r < 0)
+                return log_error_errno(r, "Failed to attach device monitor: %m");
+
+        r = sd_device_monitor_start(monitor, NULL, NULL);
+        if (r < 0)
+                return log_error_errno(r, "Failed to start device monitor: %m");
+
+        *ret_event = TAKE_PTR(event);
+        *ret_monitor = TAKE_PTR(monitor);
+        return 0;
+}
+
+static int attach_luks2_by_tpm2_via_plugin(
+                struct crypt_device *cd,
+                const char *name,
+                usec_t until,
+                uint32_t flags) {
+
+#if HAVE_LIBCRYPTSETUP_PLUGINS
+        systemd_tpm2_plugin_params params = {
+                .search_pcr_mask = arg_tpm2_pcr_mask,
+                .device = arg_tpm2_device,
+                .signature_path = arg_tpm2_signature,
+                .pcrlock_path = arg_tpm2_pcrlock,
+        };
+
+        if (!use_token_plugins())
+                return log_debug_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
+                                       "libcryptsetup has external plugins support disabled.");
+
+        return crypt_activate_by_token_pin_ask_password(
+                        cd,
+                        name,
+                        "systemd-tpm2",
+                        until,
+                        &params,
+                        flags,
+                        "Please enter TPM2 PIN:",
+                        "tpm2-pin",
+                        "cryptsetup.tpm2-pin");
+#else
+        return -EOPNOTSUPP;
+#endif
+}
+
+static int attach_luks_or_plain_or_bitlk_by_tpm2(
+                struct crypt_device *cd,
+                const char *name,
+                const char *key_file,
+                const struct iovec *key_data,
+                usec_t until,
+                uint32_t flags,
+                bool pass_volume_key) {
+
+        _cleanup_(sd_device_monitor_unrefp) sd_device_monitor *monitor = NULL;
+        _cleanup_(iovec_done_erase) struct iovec decrypted_key = {};
+        _cleanup_(sd_event_unrefp) sd_event *event = NULL;
+        _cleanup_free_ char *friendly = NULL;
+        int keyslot = arg_key_slot, r;
+
+        assert(cd);
+        assert(name);
+        assert(arg_tpm2_device || arg_tpm2_device_auto);
+
+        friendly = friendly_disk_name(sym_crypt_get_device_name(cd), name);
+        if (!friendly)
+                return log_oom();
+
+        for (;;) {
+                if (key_file || iovec_is_set(key_data)) {
+                        /* If key data is specified, use that */
+
+                        r = acquire_tpm2_key(
+                                        name,
+                                        arg_tpm2_device,
+                                        arg_tpm2_pcr_mask == UINT32_MAX ? TPM2_PCR_MASK_DEFAULT_LEGACY : arg_tpm2_pcr_mask,
+                                        UINT16_MAX,
+                                        /* pubkey= */ NULL,
+                                        /* pubkey_policy_ref= */ NULL,
+                                        /* pubkey_pcr_mask= */ 0,
+                                        /* signature_path= */ NULL,
+                                        /* pcrlock_path= */ NULL,
+                                        /* primary_alg= */ 0,
+                                        key_file, arg_keyfile_size, arg_keyfile_offset,
+                                        key_data, /* n_blobs= */ iovec_is_set(key_data) ? 1 : 0,
+                                        /* policy_hash= */ NULL, /* we don't know the policy hash */
+                                        /* n_policy_hash= */ 0,
+                                        /* salt= */ NULL,
+                                        /* srk= */ NULL,
+                                        /* pcrlock_nv= */ NULL,
+                                        arg_tpm2_pin ? TPM2_FLAGS_USE_PIN : 0,
+                                        until,
+                                        "cryptsetup.tpm2-pin",
+                                        arg_ask_password_flags,
+                                        /* argon2id_params= */ NULL,
+                                        &decrypted_key);
+                        if (r >= 0)
+                                break;
+                        if (IN_SET(r, -EACCES, -ENOLCK))
+                                return log_error_errno(SYNTHETIC_ERRNO(EAGAIN), "TPM2 PIN unlock failed, falling back to traditional unlocking.");
+                        if (ERRNO_IS_NOT_SUPPORTED(r)) /* TPM2 support not compiled in? */
+                                return log_debug_errno(SYNTHETIC_ERRNO(EAGAIN), "TPM2 support not available, falling back to traditional unlocking.");
+                        /* EAGAIN means: no tpm2 chip found */
+                        if (r != -EAGAIN) {
+                                log_notice_errno(r, "TPM2 operation failed, falling back to traditional unlocking: %m");
+                                return -EAGAIN; /* Mangle error code: let's make any form of TPM2 failure non-fatal. */
+                        }
+                } else {
+                        r = attach_luks2_by_tpm2_via_plugin(cd, name, until, flags);
+                        if (r >= 0)
+                                return 0;
+                        /* EAGAIN     means: no tpm2 chip found
+                         * EOPNOTSUPP means: no libcryptsetup plugins support */
+                        if (r == -ENXIO)
+                                return log_notice_errno(SYNTHETIC_ERRNO(EAGAIN),
+                                                        "No TPM2 metadata matching the current system state found in LUKS2 header, falling back to traditional unlocking.");
+                        if (r == -ENOENT)
+                                return log_debug_errno(SYNTHETIC_ERRNO(EAGAIN),
+                                                       "No TPM2 metadata enrolled in LUKS2 header or TPM2 support not available, falling back to traditional unlocking.");
+                        if (!IN_SET(r, -EOPNOTSUPP, -EAGAIN)) {
+                                log_notice_errno(r, "TPM2 operation failed, falling back to traditional unlocking: %m");
+                                return -EAGAIN; /* Mangle error code: let's make any form of TPM2 failure non-fatal. */
+                        }
+                }
+
+                if (r == -EOPNOTSUPP) { /* Plugin not available, let's process TPM2 stuff right here instead */
+                        bool found_some = false;
+                        int token = 0; /* first token to look at */
+
+                        /* If no key data is specified, look for it in the header. In order to support
+                         * software upgrades we'll iterate through all suitable tokens, maybe one of them
+                         * works. */
+
+                        for (;;) {
+                                _cleanup_(iovec_done) struct iovec pubkey = {}, salt = {}, srk = {}, pcrlock_nv = {};
+                                _cleanup_free_ char *pubkey_policy_ref = NULL;
+                                struct iovec *blobs = NULL, *policy_hash = NULL;
+                                uint32_t hash_pcr_mask, pubkey_pcr_mask;
+                                size_t n_blobs = 0, n_policy_hash = 0;
+                                uint16_t pcr_bank, primary_alg;
+                                Argon2IdParameters argon2id_params = {};
+                                TPM2Flags tpm2_flags;
+
+                                CLEANUP_ARRAY(blobs, n_blobs, iovec_array_free);
+                                CLEANUP_ARRAY(policy_hash, n_policy_hash, iovec_array_free);
+
+                                r = find_tpm2_auto_data(
+                                                cd,
+                                                arg_tpm2_pcr_mask, /* if != UINT32_MAX we'll only look for tokens with this PCR mask */
+                                                token, /* search for the token with this index, or any later index than this */
+                                                &hash_pcr_mask,
+                                                &pcr_bank,
+                                                &pubkey,
+                                                &pubkey_policy_ref,
+                                                &pubkey_pcr_mask,
+                                                &primary_alg,
+                                                &blobs,
+                                                &n_blobs,
+                                                &policy_hash,
+                                                &n_policy_hash,
+                                                &salt,
+                                                &srk,
+                                                &pcrlock_nv,
+                                                &tpm2_flags,
+                                                &keyslot,
+                                                &token,
+                                                &argon2id_params);
+                                if (r == -ENXIO)
+                                        /* No further TPM2 tokens found in the LUKS2 header. */
+                                        return log_full_errno(found_some ? LOG_NOTICE : LOG_DEBUG,
+                                                              SYNTHETIC_ERRNO(EAGAIN),
+                                                              found_some
+                                                              ? "No TPM2 metadata matching the current system state found in LUKS2 header, falling back to traditional unlocking."
+                                                              : "No TPM2 metadata enrolled in LUKS2 header, falling back to traditional unlocking.");
+                                if (ERRNO_IS_NEG_NOT_SUPPORTED(r))
+                                        /* TPM2 support not compiled in? */
+                                        return log_debug_errno(SYNTHETIC_ERRNO(EAGAIN),
+                                                               "TPM2 support not available, falling back to traditional unlocking.");
+                                if (r < 0)
+                                        return r;
+
+                                found_some = true;
+
+                                r = acquire_tpm2_key(
+                                                name,
+                                                arg_tpm2_device,
+                                                hash_pcr_mask,
+                                                pcr_bank,
+                                                &pubkey,
+                                                pubkey_policy_ref,
+                                                pubkey_pcr_mask,
+                                                arg_tpm2_signature,
+                                                arg_tpm2_pcrlock,
+                                                primary_alg,
+                                                /* key_file= */ NULL, /* key_file_size= */ 0, /* key_file_offset= */ 0, /* no key file */
+                                                blobs,
+                                                n_blobs,
+                                                policy_hash,
+                                                n_policy_hash,
+                                                &salt,
+                                                &srk,
+                                                &pcrlock_nv,
+                                                tpm2_flags,
+                                                until,
+                                                "cryptsetup.tpm2-pin",
+                                                arg_ask_password_flags,
+                                                &argon2id_params,
+                                                &decrypted_key);
+                                if (IN_SET(r, -EACCES, -ENOLCK))
+                                        return log_notice_errno(SYNTHETIC_ERRNO(EAGAIN), "TPM2 PIN unlock failed, falling back to traditional unlocking.");
+                                /* Stop unless we should keep iterating to next token because the tried one
+                                 * does not match boot state. For now without -EUCLEAN because currently the
+                                 * only error it reports won't be solved by moving to another token. */
+                                if (!ERRNO_IS_NEG_TPM2_TOKEN_MISMATCH(r))
+                                        break;
+
+                                token++; /* try a different token next time */
+                        }
+
+                        if (r >= 0)
+                                break;
+                        /* EAGAIN means: no tpm2 chip found */
+                        if (r != -EAGAIN) {
+                                log_notice_errno(r, "TPM2 operation failed, falling back to traditional unlocking: %m");
+                                return -EAGAIN; /* Mangle error code: let's make any form of TPM2 failure non-fatal. */
+                        }
+                }
+
+                if (!monitor) {
+                        /* We didn't find the TPM2 device. In this case, watch for it via udev. Let's create
+                         * an event loop and monitor first. */
+
+                        assert(!event);
+
+                        if (is_efi_boot() && !efi_has_tpm2())
+                                return log_notice_errno(SYNTHETIC_ERRNO(EAGAIN),
+                                                        "No TPM2 hardware discovered and EFI firmware does not see it either, falling back to traditional unlocking.");
+
+                        r = make_tpm2_device_monitor(&event, &monitor);
+                        if (r < 0)
+                                return r;
+
+                        log_info("TPM2 device not present for unlocking %s, waiting for it to become available.", friendly);
+
+                        /* Let's immediately rescan in case the device appeared in the time we needed
+                         * to create and configure the monitor */
+                        continue;
+                }
+
+                r = run_security_device_monitor(event, monitor);
+                if (r < 0)
+                        return r;
+
+                log_debug("Got one or more potentially relevant udev events, rescanning for TPM2...");
+        }
+
+        if (pass_volume_key)
+                r = measured_crypt_activate_by_volume_key(
+                                cd,
+                                name,
+                                "tpm2",
+                                /* keyslot= */ -1,
+                                decrypted_key.iov_base,
+                                decrypted_key.iov_len,
+                                flags);
+        else {
+                _cleanup_(erase_and_freep) char *base64_encoded = NULL;
+                ssize_t base64_encoded_size;
+
+                /* Before using this key as passphrase we base64 encode it, for compat with homed */
+
+                base64_encoded_size = base64mem(decrypted_key.iov_base, decrypted_key.iov_len, &base64_encoded);
+                if (base64_encoded_size < 0)
+                        return log_oom();
+
+                r = measured_crypt_activate_by_passphrase(
+                                cd,
+                                name,
+                                "tpm2",
+                                keyslot,
+                                base64_encoded,
+                                base64_encoded_size,
+                                flags);
+        }
+        if (r == -EPERM) {
+                log_error_errno(r, "Failed to activate with TPM2 decrypted key. (Key incorrect?)");
+                return -EAGAIN; /* log actual error, but return EAGAIN */
+        }
+        if (r < 0)
+                return log_error_errno(r, "Failed to activate with TPM2 acquired key: %m");
+
+        return 0;
+}
+
 static int attach_luks_or_plain_or_bitlk_by_key_data(
                 struct crypt_device *cd,
                 const char *name,
@@ -1839,6 +2445,8 @@ static int attach_luks_or_plain_or_bitlk(
                  sym_crypt_get_volume_key_size(cd)*8,
                  sym_crypt_get_device_name(cd));
 
+        if (token_type == TOKEN_TPM2)
+                return attach_luks_or_plain_or_bitlk_by_tpm2(cd, name, key_file, key_data, until, flags, pass_volume_key);
         if (token_type == TOKEN_FIDO2)
                 return attach_luks_or_plain_or_bitlk_by_fido2(cd, name, key_file, key_data, until, flags, pass_volume_key);
         if (token_type == TOKEN_PKCS11)
@@ -1960,6 +2568,8 @@ static void remove_and_erasep(const char **p) {
 }
 
 static TokenType determine_token_type(void) {
+        if (arg_tpm2_device || arg_tpm2_device_auto)
+                return TOKEN_TPM2;
         if (arg_fido2_device || arg_fido2_device_auto)
                 return TOKEN_FIDO2;
         if (arg_pkcs11_uri || arg_pkcs11_uri_auto)
@@ -2200,6 +2810,12 @@ static int verb_attach(int argc, char *argv[], uintptr_t _data, void *userdata) 
                 /* Key not correct? Let's try again, but let's invalidate one of the passed fields, so that
                  * we fall back to the next best thing. */
 
+                if (token_type == TOKEN_TPM2) {
+                        arg_tpm2_device = mfree(arg_tpm2_device);
+                        arg_tpm2_device_auto = false;
+                        continue;
+                }
+
                 if (token_type == TOKEN_FIDO2) {
                         arg_fido2_device = mfree(arg_fido2_device);
                         arg_fido2_device_auto = false;
@@ -2268,6 +2884,12 @@ static int verb_detach(int argc, char *argv[], uintptr_t _data, void *userdata) 
 static int run(int argc, char *argv[]) {
         int r;
 
+        LIBBLKID_NOTE(recommended);
+        LIBFIDO2_NOTE(suggested);
+        LIBMOUNT_NOTE(recommended);
+        LIBP11KIT_NOTE(suggested);
+        TPM2_NOTE(suggested);
+
         log_setup();
 
         umask(0022);
@@ -2277,7 +2899,7 @@ static int run(int argc, char *argv[]) {
         if (r <= 0)
                 return r;
 
-        r = DLOPEN_CRYPTSETUP(LOG_ERR, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        r = DLOPEN_CRYPTSETUP(LOG_ERR, required);
         if (r < 0)
                 return r;
 

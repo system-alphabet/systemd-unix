@@ -326,7 +326,7 @@ static int vl_method_enroll(
         if (FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
                 c.link = sd_varlink_ref(link);
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, required);
         if (r < 0)
                 return r;
 
@@ -403,7 +403,7 @@ static int vl_method_list_slots(
         if (strdup_to(&c.node, node) < 0)
                 return -ENOMEM;
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, SD_ELF_NOTE_DLOPEN_PRIORITY_REQUIRED);
+        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, required);
         if (r < 0)
                 return r;
 

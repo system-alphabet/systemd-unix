@@ -36,6 +36,7 @@ foreach item : [
         ['_systemd-path',             ''],
         ['_systemd-run',              ''],
         ['_systemd-sysinstall',       'ENABLE_SYSINSTALL'],
+        ['_systemd-sysupdate',        'ENABLE_SYSUPDATE'],
         ['_systemd-tmpfiles',         'ENABLE_TMPFILES'],
         ['_userdbctl',                ''],
         ['_varlinkctl',               ''],
