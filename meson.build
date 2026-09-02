@@ -27,7 +27,8 @@ else
         project_minor_version = '0'
 endif
 
-libsystemd_version = '0.44.0'
+libsystemd_version = '0.45.0'
+libudev_version = '1.7.15'
 
 conf = configuration_data()
 conf.set_quoted('PROJECT_URL', 'https://systemd.io/')
@@ -344,6 +345,7 @@ userspace_c_ld_args = []
 userspace_sources = []
 
 want_tests = get_option('tests')
+want_dlopen_tests = want_tests != 'false' and get_option('dlopen-tests')
 want_slow_tests = want_tests != 'false' and get_option('slow-tests')
 want_fuzz_tests = want_tests != 'false' and get_option('fuzz-tests')
 install_tests = want_tests != 'false' and get_option('install-tests')
@@ -948,6 +950,9 @@ elif tty_mode != '0600' and tty_mode != '0620'
 endif
 # Do not use set_quoted() here, so that the value is available as an integer.
 conf.set('TTY_MODE', tty_mode)
+
+var_log_mode = get_option('var-log-mode')
+conf.set_quoted('VAR_LOG_MODE', var_log_mode)
 
 kill_user_processes = get_option('default-kill-user-processes')
 conf.set10('KILL_USER_PROCESSES', kill_user_processes)
@@ -1735,7 +1740,7 @@ fuzzer_exes = []
 sources = []
 
 # binaries that have --help and are intended for use by humans,
-# usually, but not always, installed in /bin.
+# usually, but not always, installed in /usr/bin.
 public_programs = []
 
 # D-Bus introspection XML export
@@ -2279,7 +2284,7 @@ foreach dict : executables
                         install: install_static,
                 )
 
-                executables_by_name += { name_static : exe_static }
+executables_by_name += { name_static : exe_static }
 
                 if build_by_default_static
                         if dict.get('dbus', false) and not build_by_default_shared
@@ -2570,18 +2575,20 @@ endif
 foreach exec : public_programs
         name = fs.name(exec.full_path())
         if want_tests != 'false'
-                test('check-help-' + name,
-                     check_help_sh,
-                     suite : 'dist',
-                     args : exec.full_path(),
-                     depends: exec)
-
                 test('check-version-' + name,
                      check_version_sh,
                      suite : 'dist',
                      args : [exec.full_path(),
                              project_major_version],
                      depends: exec)
+
+                if not name.endswith('.standalone')
+                        test('check-help-' + name,
+                             check_help_sh,
+                             suite : 'dist',
+                             args : exec.full_path(),
+                             depends: exec)
+                endif
         endif
 endforeach
 
@@ -2709,7 +2716,7 @@ if spatch.found()
                                 args : [meson.project_source_root() / dir,
                                         meson.project_source_root() / 'coccinelle'],
                                 suite : 'coccinelle',
-                                timeout : 120,
+                                timeout : 300,
                         )
                 endif
         endforeach

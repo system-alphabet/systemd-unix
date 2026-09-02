@@ -16,7 +16,7 @@ if conf.get('ENABLE_SYSUSERS') == 1
                      env : test_env,
                      suite : 'sysusers')
 
-                if have_standalone_binaries
+                if 'systemd-sysusers.standalone' in executables_by_name
                         exe = executables_by_name.get('systemd-sysusers.standalone')
                         test('test-sysusers.standalone',
                              test_sysusers_sh,
@@ -74,7 +74,7 @@ if want_tests != 'false' and conf.get('ENABLE_TMPFILES') == 1
              depends : exe,
              suite : 'tmpfiles')
 
-        if have_standalone_binaries
+        if 'systemd-tmpfiles.standalone' in executables_by_name
                 exe = executables_by_name.get('systemd-tmpfiles.standalone')
                 test('test-systemd-tmpfiles.standalone',
                      test_systemd_tmpfiles_py,
@@ -87,7 +87,7 @@ endif
 ############################################################
 
 test_compare_versions_sh = files('test-compare-versions.sh')
-if want_tests != 'false' and executables_by_name.has_key('systemd-analyze')
+if want_tests != 'false' and 'systemd-analyze' in executables_by_name
         exe = executables_by_name.get('systemd-analyze')
         test('test-compare-versions',
              test_compare_versions_sh,
@@ -139,7 +139,7 @@ endif
 ############################################################
 
 test_fstab_generator_sh = files('test-fstab-generator.sh')
-if want_tests != 'false' and executables_by_name.has_key('systemd-fstab-generator')
+if want_tests != 'false' and 'systemd-fstab-generator' in executables_by_name
         exe = executables_by_name.get('systemd-fstab-generator')
         test('test-fstab-generator',
              test_fstab_generator_sh,

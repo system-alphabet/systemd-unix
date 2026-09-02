@@ -4,24 +4,24 @@
 #include <sys/stat.h>
 
 #include "sd-device.h"
+#include "sd-json.h"
 
 #include "alloc-util.h"
-#include "argv-util.h"
+#include "build.h"
 #include "cryptsetup-util.h"
 #include "dlopen-note.h"
 #include "extract-word.h"
 #include "fileio.h"
-#include "format-table.h"
 #include "fstab-util.h"
-#include "help-util.h"
 #include "hexdecoct.h"
 #include "log.h"
 #include "main-func.h"
 #include "parse-util.h"
 #include "path-util.h"
-
+#include "pcrextend-util.h"
 #include "string-util.h"
 #include "strv.h"
+#include "tpm2-util.h"
 #include "verbs.h"
 
 static char *arg_hash = NULL; /* the hash algorithm */
@@ -41,32 +41,14 @@ static uint64_t arg_fec_roots = 2;
 static void *arg_root_hash_signature = NULL;
 static size_t arg_root_hash_signature_size = 0;
 static bool arg_root_hash_signature_auto = false;
+static char *arg_tpm2_measure_nvpcr = NULL;
 
 STATIC_DESTRUCTOR_REGISTER(arg_hash, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_salt, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_uuid, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_fec_what, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_root_hash_signature, freep);
-
-static int help(void) {
-        _cleanup_(table_unrefp) Table *verbs = NULL;
-        int r;
-
-        r = verbs_get_help_table(&verbs);
-        if (r < 0)
-                return r;
-
-        help_cmdline("COMMAND ...");
-        help_abstract("Attach or detach a verity protected block device.");
-
-        help_section("Commands");
-        r = table_print_or_warn(verbs);
-        if (r < 0)
-                return r;
-
-        help_man_page_reference("systemd-veritysetup@.service", "8");
-        return 0;
-}
+STATIC_DESTRUCTOR_REGISTER(arg_tpm2_measure_nvpcr, freep);
 
 static int parse_roothashsig_option(const char *option, bool strict) {
         _cleanup_free_ void *rhs = NULL;
@@ -293,6 +275,21 @@ static int parse_options(const char *options) {
                         if (r < 0)
                                 return r;
 
+                } else if ((val = startswith(word, "tpm2-measure-nvpcr="))) {
+                        r = isempty(val) ? 0 : parse_boolean(val);
+                        if (r == 0) {
+                                arg_tpm2_measure_nvpcr = mfree(arg_tpm2_measure_nvpcr);
+                                continue;
+                        }
+                        if (r > 0)
+                                val = "verity";
+                        else if (!tpm2_nvpcr_name_is_valid(val)) {
+                                log_warning("Invalid NvPCR name, ignoring: %s", word);
+                                continue;
+                        }
+
+                        if (free_and_strdup(&arg_tpm2_measure_nvpcr, val) < 0)
+                                return log_oom();
                 } else
                         log_warning("Encountered unknown option '%s', ignoring.", word);
         }
@@ -300,8 +297,14 @@ static int parse_options(const char *options) {
         return r;
 }
 
-VERB(verb_attach, "attach", "VOLUME DATADEVICE HASHDEVICE ROOTHASH [OPTIONS]", 5, 6, 0,
-     "Attach a verity protected block device");
+COMMAND(
+        "systemd-veritysetup\0",
+        "Attach or detach a verity-protected block device.",
+        .man_pages = "systemd-veritysetup@.service(8)\0",
+);
+
+VERB(verb_attach, "attach", "VOLUME DATADEVICE HASHDEVICE ROOTHASH [OPTIONS]\0", 5, 6, 0,
+     "Attach a verity-protected block device");
 static int verb_attach(int argc, char *argv[], uintptr_t _data, void *userdata) {
         _cleanup_(crypt_freep) struct crypt_device *cd = NULL;
         _cleanup_free_ void *rh = NULL;
@@ -430,11 +433,16 @@ static int verb_attach(int argc, char *argv[], uintptr_t _data, void *userdata) 
         if (r < 0)
                 return log_error_errno(r, "Failed to set up verity device '%s': %m", volume);
 
+        (void) pcrextend_verity_now(
+                        volume,
+                        &IOVEC_MAKE(rh, rh_size),
+                        signed_activation ? &IOVEC_MAKE(arg_root_hash_signature, arg_root_hash_signature_size) : NULL);
+
         return 0;
 }
 
-VERB(verb_detach, "detach", "VOLUME", 2, 2, 0,
-     "Detach a verity protected block device");
+VERB(verb_detach, "detach", "VOLUME\0", 2, 2, 0,
+     "Detach a verity-protected block device");
 static int verb_detach(int argc, char *argv[], uintptr_t _data, void *userdata) {
         _cleanup_(crypt_freep) struct crypt_device *cd = NULL;
         int r;
@@ -463,23 +471,52 @@ static int verb_detach(int argc, char *argv[], uintptr_t _data, void *userdata) 
         return 0;
 }
 
+VERB_COMMON_HELP_AUTO_HIDDEN();
+
+static int parse_argv(int argc, char *argv[], char ***ret_args) {
+        assert(argc >= 0);
+        assert(argv);
+        assert(ret_args);
+
+        OptionParser opts = { argc, argv };
+
+        FOREACH_OPTION_OR_RETURN(c, &opts)
+                switch (c) {
+
+                OPTION_COMMON_HELP:
+                        return command_print_help();
+
+                OPTION_COMMON_VERSION:
+                        return version();
+
+                OPTION_COMMON_INTROSPECT_CLI:
+                        return introspect_cli(SD_JSON_FORMAT_OFF);
+                }
+
+        *ret_args = option_parser_get_args(&opts);
+        return 1;
+}
+
 static int run(int argc, char *argv[]) {
         int r;
 
-        if (argv_looks_like_help(argc, argv))
-                return help();
+        char **args = NULL;
+        r = parse_argv(argc, argv, &args);
+        if (r <= 0)
+                return r;
 
         log_setup();
 
         LIBCRYPTO_NOTE(suggested);
+        LIBCRYPTSETUP_NOTE(required);
 
-        r = DLOPEN_CRYPTSETUP(LOG_ERR, required);
+        r = dlopen_cryptsetup(LOG_ERR);
         if (r < 0)
                 return r;
 
         umask(0022);
 
-        return dispatch_verb(strv_skip(argv, 1), /* userdata= */ NULL);
+        return dispatch_verb(args, /* userdata= */ NULL);
 }
 
 DEFINE_MAIN_FUNCTION(run);

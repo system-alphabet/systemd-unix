@@ -35,7 +35,6 @@ systemd_analyze_sources = files(
         'analyze.c',
 )
 
-
 executables += [
         executable_template + {
                 'name' : 'systemd-analyze',

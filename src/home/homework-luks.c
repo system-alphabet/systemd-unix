@@ -146,7 +146,7 @@ static int probe_file_system_by_fd(
         assert(ret_fstype);
         assert(ret_uuid);
 
-        r = DLOPEN_LIBBLKID(LOG_DEBUG, recommended);
+        r = dlopen_libblkid(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -529,7 +529,7 @@ static int acquire_open_luks_device(
         assert(setup);
         assert(!setup->crypt_device);
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
+        r = dlopen_cryptsetup(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -684,7 +684,7 @@ static int luks_validate(
         assert(ret_size);
         assert(sector_size > 0);
 
-        r = DLOPEN_LIBBLKID(LOG_DEBUG, recommended);
+        r = dlopen_libblkid(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -805,7 +805,7 @@ static int crypt_device_to_evp_cipher(struct crypt_device *cd, const EVP_CIPHER 
         assert(cd);
         assert(ret);
 
-        r = DLOPEN_LIBCRYPTO(LOG_ERR, recommended);
+        r = dlopen_libcrypto(LOG_ERR);
         if (r < 0)
                 return r;
 
@@ -1293,7 +1293,7 @@ int home_setup_luks(
         assert(setup);
         assert(user_record_storage(h) == USER_LUKS);
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
+        r = dlopen_cryptsetup(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -1430,7 +1430,7 @@ int home_setup_luks(
                 if (run_mark_dirty(setup->image_fd, true) > 0)
                         setup->do_mark_clean = true;
 
-                if (!user_record_luks_discard(h)) {
+                if (!FLAGS_SET(flags, HOME_SETUP_LUKS_DONT_FALLOCATE) && !user_record_luks_discard(h)) {
                         r = run_fallocate(setup->image_fd, &st);
                         if (r < 0)
                                 return r;
@@ -1505,7 +1505,9 @@ int home_setup_luks(
                 if (user_record_luks_discard(h))
                         (void) run_fitrim(setup->root_fd);
 
-                setup->do_offline_fallocate = !(setup->do_offline_fitrim = user_record_luks_offline_discard(h));
+                setup->do_offline_fitrim = user_record_luks_offline_discard(h);
+                setup->do_offline_fallocate = !setup->do_offline_fitrim;
+                setup->tolerate_offline_fallocate_enospc = FLAGS_SET(flags, HOME_SETUP_LUKS_DONT_FALLOCATE);
         }
 
         if (!sd_id128_is_null(found_partition_uuid))
@@ -1594,7 +1596,7 @@ int home_activate_luks(
         assert(setup);
         assert(ret_home);
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
+        r = dlopen_cryptsetup(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -1609,7 +1611,7 @@ int home_activate_luks(
 
         r = home_setup_luks(
                         h,
-                        0,
+                        flags,
                         NULL,
                         setup,
                         cache,
@@ -2211,11 +2213,11 @@ int home_create_luks(
         assert(setup->image_fd < 0);
         assert(ret_home);
 
-        r = DLOPEN_FDISK(LOG_DEBUG, recommended);
+        r = dlopen_fdisk(LOG_DEBUG);
         if (r < 0)
                 return r;
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
+        r = dlopen_cryptsetup(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -2561,7 +2563,7 @@ int home_create_luks(
         setup->loop = loop_device_unref(setup->loop);
 
         if (!user_record_luks_offline_discard(h)) {
-                r= run_fallocate(setup->image_fd, NULL /* refresh stat() data */);
+                r = run_fallocate(setup->image_fd, NULL /* refresh stat() data */);
                 if (r < 0)
                         return r;
         }
@@ -3250,11 +3252,11 @@ int home_resize_luks(
         assert(user_record_storage(h) == USER_LUKS);
         assert(setup);
 
-        r = DLOPEN_FDISK(LOG_DEBUG, recommended);
+        r = dlopen_fdisk(LOG_DEBUG);
         if (r < 0)
                 return r;
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
+        r = dlopen_cryptsetup(LOG_DEBUG);
         if (r < 0)
                 return r;
 
@@ -3712,7 +3714,7 @@ int home_passwd_luks(
         assert(user_record_storage(h) == USER_LUKS);
         assert(setup);
 
-        r = DLOPEN_CRYPTSETUP(LOG_DEBUG, recommended);
+        r = dlopen_cryptsetup(LOG_DEBUG);
         if (r < 0)
                 return r;
 

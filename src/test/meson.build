@@ -17,6 +17,7 @@ test_env = {
         'SYSTEMD_SLOW_TESTS' : want_slow_tests ? '1' : '0',
         'PYTHONDONTWRITEBYTECODE' : '1',
         'SYSTEMD_LIBC' : get_option('libc'),
+        'SYSTEMD_BUILD_MODE' : get_option('mode'),
 }
 
 
@@ -45,6 +46,7 @@ simple_tests += files(
         'test-architecture.c',
         'test-argv-util.c',
         'test-arphrd-util.c',
+        'test-ask-password-agent.c',
         'test-audit-util.c',
         'test-barrier.c',
         'test-binfmt-util.c',
@@ -130,6 +132,8 @@ simple_tests += files(
         'test-login-util.c',
         'test-machine-util.c',
         'test-macro.c',
+        'test-main-func-fiber.c',
+        'test-main-func.c',
         'test-memfd-util.c',
         'test-memory-util.c',
         'test-mempool.c',
@@ -154,7 +158,9 @@ simple_tests += files(
         'test-path-lookup.c',
         'test-path-util.c',
         'test-percent-util.c',
+        'test-pidfd-util.c',
         'test-pidref.c',
+        'test-plymouth-util.c',
         'test-pressure.c',
         'test-pretty-print.c',
         'test-printf.c',
@@ -279,11 +285,14 @@ executables += [
                 'override_options' : ['b_sanitize=none', 'strip=false', 'debug=true'],
                 'c_args' : ['-fno-sanitize=all', '-fno-optimize-sibling-calls', '-O1'],
         },
-
         test_template + {
                 'sources' : files('test-crypto-util.c'),
                 'dependencies' : libopenssl_cflags,
                 'conditions' : ['HAVE_OPENSSL'],
+        },
+        test_template + {
+                'sources' : files('test-dbus-name-holder.c'),
+                'type' : 'manual',
         },
         test_template + {
                 'sources' : files('test-display-quota.c'),
@@ -439,7 +448,7 @@ executables += [
         },
         test_template + {
                 'sources' : files('test-qmp-client-qemu.c'),
-                'objects' : ['systemd-vmspawn'],
+                'import' : ['systemd-vmspawn'],
                 'conditions' : ['ENABLE_VMSPAWN'],
         },
         test_template + {

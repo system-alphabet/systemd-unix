@@ -3,6 +3,8 @@
 
 #include "forward.h"
 
+typedef enum RecursiveErrors RecursiveErrors;
+
 typedef enum DotMode {
         DEP_ALL,
         DEP_ORDER,
@@ -25,6 +27,7 @@ extern const char *arg_host;
 extern char *arg_debugger;
 extern char **arg_debugger_args;
 extern RuntimeScope arg_runtime_scope;
+extern RecursiveErrors arg_recursive_errors;
 extern bool arg_man;
 extern bool arg_generators;
 extern const char *arg_instance;

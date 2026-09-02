@@ -5,7 +5,7 @@
 set -eux
 set -o pipefail
 
-SYSUPDATE=/usr/bin/systemd-sysupdate
+SYSUPDATE=/usr/lib/systemd/systemd-sysupdate
 SYSUPDATED=/lib/systemd/systemd-sysupdated
 UPDATECTL=""
 VARLINK_SOCKET=/run/systemd/io.systemd.SysUpdate
@@ -143,9 +143,14 @@ new_version() {
 
 check_no_new_update_available() {
     local client="${1:?}"
+    local output
 
     if [[ "$client" == "sysupdate-cli" ]]; then
         (! "$SYSUPDATE" --verify=no check-new)
+        if output="$("$SYSUPDATE" --verify=no --json=short check-new)"; then
+            exit 1
+        fi
+        [[ "$output" == '{"available":null}' ]]
     elif [[ "$client" == "varlink" ]]; then
         (! varlinkctl call "$VARLINK_SOCKET" io.systemd.SysUpdate.CheckNew '{"target":{"class":"host"}}') |& grep io.systemd.SysUpdate.NoUpdateNeeded >/dev/null
     else
@@ -693,6 +698,39 @@ cmp "$WORKDIR/source/tiny-v1.bin" "$WORKDIR/blobs/tiny-v1.bin"
 "$SYSUPDATE" features |& grep "No features." >/dev/null
 [[ $(varlinkctl call "$VARLINK_SOCKET" io.systemd.SysUpdate.ListFeatures '{"target":{"class":"host"}}' | jq -r '.features') == "[]" ]]
 
+# Test that definitions found through --root= are not prefixed twice.
+rm -rf "$WORKDIR/root-definitions"
+mkdir -p "$WORKDIR/root-definitions/etc/sysupdate.d" \
+         "$WORKDIR/root-definitions/etc" \
+         "$WORKDIR/root-definitions/source" \
+         "$WORKDIR/root-definitions/target"
+printf '%s\n' 'ID=repro' 'VERSION_ID=1' >"$WORKDIR/root-definitions/etc/os-release"
+cat >"$WORKDIR/root-definitions/etc/sysupdate.d/rootfeat.feature" <<EOF
+[Feature]
+Description=Root Feature
+EOF
+cat >"$WORKDIR/root-definitions/etc/sysupdate.d/01-root.transfer" <<EOF
+[Transfer]
+
+[Source]
+Type=regular-file
+Path=/source
+MatchPattern=root-@v.bin
+
+[Target]
+Type=regular-file
+Path=/target
+MatchPattern=root-@v.bin
+InstancesMax=2
+EOF
+"$SYSUPDATE" \
+    --root="$WORKDIR/root-definitions" \
+    --verify=no \
+    --offline \
+    features rootfeat \
+    | grep -F "Root Feature" >/dev/null
+rm -rf "$WORKDIR/root-definitions"
+
 # Cleanup
 rm "$CONFIGDIR/01-tiny-url.transfer"
 rm "$WORKDIR/source/tiny-v1.bin"
@@ -868,6 +906,40 @@ test ! -f "$CLEANUP/target/alpha-v2.bin"
 [[ "$(installdb_count)" -eq 0 ]]
 
 rm -rf "$CONFIGDIR" "$INSTALLDB" "$CLEANUP"
+
+# Under --root=, cleanup must compare current transfer target paths in the same
+# root-relative form stored in the install database, and keep still-owned files.
+ROOT_CLEANUP="$WORKDIR/root-cleanup"
+ROOT_CLEANUP_ROOT="$ROOT_CLEANUP/root"
+ROOT_CLEANUP_DB_VALUE="/target/./alpha-@v.bin"
+ROOT_CLEANUP_DB_KEY="$(printf '%s' "$ROOT_CLEANUP_DB_VALUE" | sha256sum | cut -d' ' -f1)"
+rm -rf "$ROOT_CLEANUP"
+mkdir -p "$ROOT_CLEANUP_ROOT/etc/sysupdate.d" \
+         "$ROOT_CLEANUP_ROOT/target" \
+         "$ROOT_CLEANUP_ROOT/var/lib/systemd/sysupdate/installdb"
+
+cat >"$ROOT_CLEANUP_ROOT/etc/sysupdate.d/01-alpha.transfer" <<EOF
+[Source]
+Type=regular-file
+Path=/source
+MatchPattern=alpha-@v.bin
+
+[Target]
+Type=regular-file
+Path=/target
+MatchPattern=alpha-@v.bin
+InstancesMax=2
+EOF
+
+echo "$RANDOM" >"$ROOT_CLEANUP_ROOT/target/alpha-v1.bin"
+ln -s "$ROOT_CLEANUP_DB_VALUE" \
+      "$ROOT_CLEANUP_ROOT/var/lib/systemd/sysupdate/installdb/$ROOT_CLEANUP_DB_KEY"
+
+"$SYSUPDATE" --root="$ROOT_CLEANUP_ROOT" --verify=no cleanup
+test -f "$ROOT_CLEANUP_ROOT/target/alpha-v1.bin"
+test -L "$ROOT_CLEANUP_ROOT/var/lib/systemd/sysupdate/installdb/$ROOT_CLEANUP_DB_KEY"
+
+rm -rf "$ROOT_CLEANUP"
 
 # Briefly check the "--component-all" switch of the "cleanup" verb. Each component
 # keeps its own install database (installdb.<component>), and "cleanup
@@ -1209,7 +1281,153 @@ EOF
     cmp "$sigdir/payload-v2.raw" "$target/payload-v2.raw"
 }
 
+backup_import_keyring() {
+    local path="$1"
+    local backup="$2"
+
+    rm -f "$backup"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        mv "$path" "$backup"
+    fi
+}
+
+restore_import_keyring() {
+    local path="$1"
+    local backup="$2"
+
+    rm -f "$path"
+    if [ -e "$backup" ] || [ -L "$backup" ]; then
+        mv "$backup" "$path"
+    fi
+}
+
+test_signature_keyring_overlay() (
+    if ! command -v gpg >/dev/null; then
+        echo "gpg not available, skipping signature overlay test"
+        exit 0
+    fi
+
+    local gpg_version gpg_rest
+    gpg_version="$(gpg --version | sed -n '1p' | awk '{print $NF}')"
+    gpg_rest="${gpg_version#*.}"
+    if [ "${gpg_version%%.*}" -lt 2 ] || { [ "${gpg_version%%.*}" -eq 2 ] && [ "${gpg_rest%%.*}" -lt 4 ]; }; then
+        echo "gpg $gpg_version too old (need >= 2.4), skipping signature overlay test"
+        exit 0
+    fi
+
+    local sigdir="$WORKDIR/sigtest-overlay-source"
+    local defdir="$WORKDIR/sigtest-overlay-defs"
+    local user_home="$WORKDIR/sigtest-overlay-userhome"
+    local vendor_home="$WORKDIR/sigtest-overlay-vendorhome"
+    local other_home="$WORKDIR/sigtest-overlay-otherhome"
+    local target="$WORKDIR/sigtest-overlay-target"
+    local user_keyring="$WORKDIR/sigtest-overlay-user.gpg"
+    local vendor_keyring="$WORKDIR/sigtest-overlay-vendor.gpg"
+    local other_keyring="$WORKDIR/sigtest-overlay-other.gpg"
+    local etc_pgp_backup="$WORKDIR/import-pubring.etc.pgp.bak"
+    local etc_gpg_backup="$WORKDIR/import-pubring.etc.gpg.bak"
+    local usr_pgp_backup="$WORKDIR/import-pubring.usr.pgp.bak"
+    # Called via trap on EXIT; shellcheck cannot see the indirect invocation.
+    # shellcheck disable=SC2329,SC2317
+    cleanup_overlay_keyrings() {
+        set +e
+        gpgconf --homedir "$user_home" --kill all 2>/dev/null || :
+        gpgconf --homedir "$vendor_home" --kill all 2>/dev/null || :
+        gpgconf --homedir "$other_home" --kill all 2>/dev/null || :
+        restore_import_keyring /etc/systemd/import-pubring.pgp "$etc_pgp_backup"
+        restore_import_keyring /etc/systemd/import-pubring.gpg "$etc_gpg_backup"
+        restore_import_keyring /usr/lib/systemd/import-pubring.pgp "$usr_pgp_backup"
+    }
+
+    mkdir -p "$sigdir" "$defdir" "$user_home" "$vendor_home" "$other_home" "$target" /etc/systemd /usr/lib/systemd
+    chmod 700 "$user_home" "$vendor_home" "$other_home"
+
+    trap cleanup_overlay_keyrings EXIT
+
+    backup_import_keyring /etc/systemd/import-pubring.pgp "$etc_pgp_backup"
+    backup_import_keyring /etc/systemd/import-pubring.gpg "$etc_gpg_backup"
+    backup_import_keyring /usr/lib/systemd/import-pubring.pgp "$usr_pgp_backup"
+
+    GNUPGHOME="$user_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --quick-gen-key 'Overlay User <overlay-user@example.com>' rsa2048 cert,sign never
+    GNUPGHOME="$user_home" gpg --export --output "$user_keyring"
+
+    GNUPGHOME="$vendor_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --quick-gen-key 'Overlay Vendor <overlay-vendor@example.com>' rsa2048 cert,sign never
+    GNUPGHOME="$vendor_home" gpg --export --output "$vendor_keyring"
+
+    GNUPGHOME="$other_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --quick-gen-key 'Overlay Other <overlay-other@example.com>' rsa2048 cert,sign never
+    GNUPGHOME="$other_home" gpg --export --output "$other_keyring"
+
+    install -Dm0644 "$user_keyring" /etc/systemd/import-pubring.gpg
+    install -Dm0644 "$vendor_keyring" /usr/lib/systemd/import-pubring.pgp
+    rm -f /etc/systemd/import-pubring.pgp
+
+    dd if=/dev/urandom of="$sigdir/payload-v1.raw" bs=1024 count=8 status=none
+    (cd "$sigdir" && sha256sum payload-v1.raw > SHA256SUMS)
+    GNUPGHOME="$vendor_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --detach-sign --include-key-block --yes \
+        --output "$sigdir/SHA256SUMS.gpg" "$sigdir/SHA256SUMS"
+
+    cat >"$defdir/01-sigtest.transfer" <<EOF
+[Source]
+Type=url-file
+Path=file://$sigdir
+MatchPattern=payload-@v.raw
+
+[Target]
+Type=regular-file
+Path=$target
+MatchPattern=payload-@v.raw
+InstancesMax=3
+EOF
+
+    "$SYSUPDATE" --definitions="$defdir" check-new
+    "$SYSUPDATE" --definitions="$defdir" update
+    cmp "$sigdir/payload-v1.raw" "$target/payload-v1.raw"
+
+    dd if=/dev/urandom of="$sigdir/payload-v2.raw" bs=1024 count=8 status=none
+    (cd "$sigdir" && sha256sum payload-v1.raw payload-v2.raw > SHA256SUMS)
+    GNUPGHOME="$other_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --detach-sign --include-key-block --yes \
+        --output "$sigdir/SHA256SUMS.gpg" "$sigdir/SHA256SUMS"
+    if "$SYSUPDATE" --definitions="$defdir" update; then
+        echo "ERROR: accepted an update signed by a key not in the default keyrings" >&2
+        exit 1
+    fi
+    if [ -f "$target/payload-v2.raw" ]; then
+        echo "ERROR: payload-v2 should not have been installed" >&2
+        exit 1
+    fi
+
+    dd if=/dev/urandom of="$sigdir/payload-v3.raw" bs=1024 count=8 status=none
+    (cd "$sigdir" && sha256sum payload-v1.raw payload-v2.raw payload-v3.raw > SHA256SUMS)
+    GNUPGHOME="$vendor_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --detach-sign --include-key-block --yes \
+        --output "$sigdir/SHA256SUMS.gpg" "$sigdir/SHA256SUMS"
+    if SYSTEMD_OPENPGP_KEYRING="$other_keyring" "$SYSUPDATE" --definitions="$defdir" update; then
+        echo "ERROR: accepted an update with an override keyring that lacks the signing key" >&2
+        exit 1
+    fi
+    if [ -f "$target/payload-v3.raw" ]; then
+        echo "ERROR: payload-v3 should not have been installed" >&2
+        exit 1
+    fi
+
+    install -Dm0644 "$user_keyring" /etc/systemd/import-pubring.pgp
+    rm -f /etc/systemd/import-pubring.gpg
+    dd if=/dev/urandom of="$sigdir/payload-v4.raw" bs=1024 count=8 status=none
+    (cd "$sigdir" && sha256sum payload-v1.raw payload-v2.raw payload-v3.raw payload-v4.raw > SHA256SUMS)
+    GNUPGHOME="$user_home" gpg --batch --pinentry-mode loopback --passphrase '' \
+        --detach-sign --include-key-block --yes \
+        --output "$sigdir/SHA256SUMS.gpg" "$sigdir/SHA256SUMS"
+    "$SYSUPDATE" --definitions="$defdir" update
+    cmp "$sigdir/payload-v4.raw" "$target/payload-v4.raw"
+)
+
 test_signature_verification
+test_signature_keyring_overlay
 
 # Test '**/' as prefix in MatchPattern= for subpaths in SHA256SUMS
 rm -rf "$CONFIGDIR" "$WORKDIR/blobs" "$WORKDIR/source/sub"
@@ -1645,12 +1863,20 @@ EOF
 assert_dropin "$(comp_enable_dropin compx)" yes
 test ! -e "$(comp_enable_dropin compy)"
 
-# 'disable-component --component-suggested' reconciles the other way around: it
-# acts on the components that are *not* suggested (i.e. compy).
+# 'disable-component --component-suggested' acts on the very same set, i.e. it
+# undoes what the enable above did. The non-suggested compy is left untouched.
 "$SYSUPDATE" --component-suggested disable-component
-assert_dropin "$(comp_enable_dropin compy)" no
-# compx must be left as it was (still enabled from above).
+assert_dropin "$(comp_enable_dropin compx)" no
+test ! -e "$(comp_enable_dropin compy)"
+
+# Reconciling the system with the current suggestions is a two step operation:
+# disable all components, then enable the suggested ones. Unlike the single
+# 'disable-component --component-suggested' above this makes the non-suggested
+# compy explicitly disabled.
+"$SYSUPDATE" --component-all disable-component
+"$SYSUPDATE" --component-suggested enable-component
 assert_dropin "$(comp_enable_dropin compx)" yes
+assert_dropin "$(comp_enable_dropin compy)" no
 
 # --component-suggested is not supported for the update verb.
 (! "$SYSUPDATE" --component-suggested --verify=no update) |& grep -F "not supported" >/dev/null
@@ -1744,6 +1970,12 @@ assert_dropin "$(feat_enable_dropin_default feata)" yes
 assert_dropin "$(feat_enable_dropin_default featb)" yes
 assert_dropin "$(feat_enable_dropin_default featc)" yes
 
+# ... and so does 'disable-feature --feature-all', in the other direction.
+"$SYSUPDATE" disable-feature --feature-all
+assert_dropin "$(feat_enable_dropin_default feata)" no
+assert_dropin "$(feat_enable_dropin_default featb)" no
+assert_dropin "$(feat_enable_dropin_default featc)" no
+
 # --feature-suggested (no machine tag): only the Suggest=yes feature is picked.
 rm -rf /etc/sysupdate.d
 set_machine_tags unrelated
@@ -1759,7 +1991,66 @@ set_machine_tags sysupdate-test-tag
 assert_dropin "$(feat_enable_dropin_default feata)" yes
 assert_dropin "$(feat_enable_dropin_default featc)" yes
 test ! -e "$(feat_enable_dropin_default featb)"
+
+# 'disable-feature --feature-suggested' selects the same features as the enable
+# above, i.e. it undoes it and leaves the non-suggested featb untouched.
+"$SYSUPDATE" disable-feature --feature-suggested
+assert_dropin "$(feat_enable_dropin_default feata)" no
+assert_dropin "$(feat_enable_dropin_default featc)" no
+test ! -e "$(feat_enable_dropin_default featb)"
+
+# The same two step reconciliation for features: disable all of them, then
+# enable the suggested ones, leaving the non-suggested featb explicitly off.
+"$SYSUPDATE" disable-feature --feature-all
+"$SYSUPDATE" enable-feature --feature-suggested
+assert_dropin "$(feat_enable_dropin_default feata)" yes
+assert_dropin "$(feat_enable_dropin_default featc)" yes
+assert_dropin "$(feat_enable_dropin_default featb)" no
 set_machine_tags ""
+
+# --component-all must still include the default component when all of its
+# transfers are currently disabled by features.
+compfeat_reset
+compfeat_source v1
+mkdir -p /run/sysupdate.d
+compfeat_transfer /run/sysupdate.d/50-feata.transfer feata "$CF/target-default" feata
+cat >/run/sysupdate.d/feata.feature <<EOF
+[Feature]
+Description=Feature A
+EOF
+"$SYSUPDATE" --component-all enable-feature --feature-all
+assert_dropin "$(feat_enable_dropin_default feata)" yes
+
+# --component-all must include the default component under --root= too.
+ROOT_FEATURE="$WORKDIR/root-feature"
+ROOT_FEATURE_ROOT="$ROOT_FEATURE/root"
+rm -rf "$ROOT_FEATURE"
+mkdir -p "$ROOT_FEATURE_ROOT/etc/sysupdate.d" \
+         "$ROOT_FEATURE_ROOT/source" \
+         "$ROOT_FEATURE_ROOT/target"
+cat >"$ROOT_FEATURE_ROOT/etc/sysupdate.d/50-feata.transfer" <<EOF
+[Transfer]
+Features=feata
+
+[Source]
+Type=regular-file
+Path=/source
+MatchPattern=feata-@v.bin
+
+[Target]
+Type=regular-file
+Path=/target
+MatchPattern=feata-@v.bin
+InstancesMax=2
+EOF
+cat >"$ROOT_FEATURE_ROOT/etc/sysupdate.d/feata.feature" <<EOF
+[Feature]
+Description=Feature A
+EOF
+"$SYSUPDATE" --root="$ROOT_FEATURE_ROOT" --component-all enable-feature --feature-all
+assert_dropin "$ROOT_FEATURE_ROOT$(feat_enable_dropin_default feata)" yes
+
+rm -rf "$ROOT_FEATURE"
 
 # ---------------------------------------------------------------------------
 # Features scoped to a named component, and across all components at once

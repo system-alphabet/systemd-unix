@@ -14,6 +14,7 @@ executables += [
                             offline_passwd_c,
                 'dependencies' : [
                         libacl_cflags,
+                        libselinux_cflags,
                 ],
                 'install' : have_standalone_binaries ? 'both' : 'yes',
         },

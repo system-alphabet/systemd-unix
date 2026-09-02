@@ -302,6 +302,15 @@ units = [
           'conditions' : ['ENABLE_COREDUMP'],
         },
         {
+          'file' : 'systemd-coredump-register.service.in',
+          'conditions' : ['ENABLE_COREDUMP'],
+        },
+        {
+          'file' : 'systemd-coredumpd.service.in',
+          'conditions' : ['ENABLE_COREDUMP'],
+          'symlinks' : ['sysinit.target.wants/'],
+        },
+        {
           'file' : 'systemd-creds.socket',
           'symlinks' : ['sockets.target.wants/'],
         },
@@ -536,6 +545,14 @@ units = [
           'file' : 'systemd-report-sign-plain@.service.in',
           'conditions' : ['HAVE_OPENSSL'],
         },
+        {
+          'file' : 'systemd-report-sign-tpm2.socket',
+          'conditions' : ['HAVE_OPENSSL','HAVE_TPM2'],
+        },
+        {
+          'file' : 'systemd-report-sign-tpm2@.service.in',
+          'conditions' : ['HAVE_OPENSSL', 'HAVE_TPM2'],
+        },
         { 'file' : 'systemd-report-sign-tsm.socket' },
         { 'file' : 'systemd-report-sign-tsm@.service.in' },
 
@@ -602,11 +619,11 @@ units = [
           'conditions' : ['ENABLE_SYSINSTALL'],
         },
         {
-          'file' : 'systemd-sysupdate-auto-enable.service',
+          'file' : 'systemd-sysupdate-auto-enable.service.in',
           'conditions' : ['ENABLE_SYSUPDATE'],
         },
         {
-          'file' : 'systemd-sysupdate-reboot.service',
+          'file' : 'systemd-sysupdate-reboot.service.in',
           'conditions' : ['ENABLE_SYSUPDATE'],
         },
         {
@@ -614,12 +631,12 @@ units = [
           'conditions' : ['ENABLE_SYSUPDATE'],
         },
         {
-          'file' : 'systemd-sysupdate-update.service',
+          'file' : 'systemd-sysupdate-update.service.in',
           'conditions' : ['ENABLE_SYSUPDATE'],
           'symlinks' : ['systemd-sysupdate.service'],  # compatibility after rename
         },
         {
-          'file' : 'systemd-sysupdate@.service',
+          'file' : 'systemd-sysupdate@.service.in',
           'conditions' : ['ENABLE_SYSUPDATE'],
         },
         {
@@ -704,7 +721,6 @@ units = [
           'symlinks' : ['sysinit.target.wants/'],
           'install_tag' : 'udev',
         },
-
         {
           'file' : 'systemd-update-done.service.in',
           'symlinks' : ['sysinit.target.wants/'],
