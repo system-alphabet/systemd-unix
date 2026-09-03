@@ -62,7 +62,8 @@ typedef int ResolveInterfaceNameFlag;
 int rtnl_resolve_ifname_full(struct sd_netlink **rtnl, ResolveInterfaceNameFlag flags, const char *name, char **ret_name, char ***ret_altnames);
 struct hw_addr_data;
 int rtnl_get_link_info_full(struct sd_netlink **rtnl, int ifindex, char **ret_name, char ***ret_altnames, unsigned short *ret_iftype, unsigned *ret_flags, char **ret_kind, struct hw_addr_data *ret_hw_addr, struct hw_addr_data *ret_permanent_hw_addr);
-int copy_tree_at_full(int fdf, const char *from, int fdt, const char *to, uid_t override_uid, gid_t override_gid, unsigned int copy_flags, void *denylist, void *subvolumes, void *progress_path, void *progress_bytes, void *userdata);
+int copy_tree_at_full(int fdf, const char *from, int fdt, const char *to, uid_t override_uid, gid_t override_gid, unsigned int copy_flags, uint64_t ts_clamp, void *denylist, void *subvolumes, void *progress_path, void *progress_bytes, void *userdata);
+int copy_times_full(int fdf, int fdt, unsigned int flags, uint64_t ts_clamp);
 int image_path_lock(int scope, const char *path, int operation, void *global, void *local);
 int sd_netlink_open(void **ret);
 int sd_netlink_call(void *rtnl, void *m, uint64_t timeout, void **ret_reply);
@@ -918,16 +919,50 @@ int pthread_setname_np(pthread_t thread, const char *name) {
 /* copy_tree_at_full — from copy.c (excluded on BSD). */
 int copy_tree_at_full(int fdf, const char *from, int fdt, const char *to,
                       uid_t override_uid, gid_t override_gid,
-                      unsigned int copy_flags, void *denylist,
+                      unsigned int copy_flags, uint64_t ts_clamp, void *denylist,
                       void *subvolumes,
                       void *progress_path, void *progress_bytes,
                       void *userdata) {
         (void)fdf; (void)from; (void)fdt; (void)to;
-        (void)override_uid; (void)override_gid; (void)copy_flags;
+        (void)override_uid; (void)override_gid; (void)copy_flags; (void)ts_clamp;
         (void)denylist; (void)subvolumes; (void)progress_path;
         (void)progress_bytes; (void)userdata;
         errno = ENOSYS;
         return -1;
+}
+
+/* copy_times_full — from copy.c (excluded on BSD). */
+int copy_times_full(int fdf, int fdt, unsigned int flags, uint64_t ts_clamp) {
+        struct stat st;
+        struct timespec times[2];
+
+        (void) flags;
+
+        if (fstat(fdf, &st) < 0)
+                return -errno;
+
+        /* ts_clamp == UINT64_MAX (USEC_INFINITY) means no upper bound on timestamps. */
+        if (ts_clamp == UINT64_MAX) {
+                times[0] = st.st_atim;
+                times[1] = st.st_mtim;
+        } else {
+                struct timespec clamp_ts;
+
+                clamp_ts.tv_sec = (time_t) (ts_clamp / 1000000);
+                clamp_ts.tv_nsec = (long) ((ts_clamp % 1000000) * 1000);
+
+                times[0] = (st.st_atim.tv_sec < clamp_ts.tv_sec ||
+                            (st.st_atim.tv_sec == clamp_ts.tv_sec && st.st_atim.tv_nsec < clamp_ts.tv_nsec))
+                        ? st.st_atim : clamp_ts;
+                times[1] = (st.st_mtim.tv_sec < clamp_ts.tv_sec ||
+                            (st.st_mtim.tv_sec == clamp_ts.tv_sec && st.st_mtim.tv_nsec < clamp_ts.tv_nsec))
+                        ? st.st_mtim : clamp_ts;
+        }
+
+        if (futimens(fdt, times) < 0)
+                return -errno;
+
+        return 0;
 }
 
 /* image_path_lock — from discover-image.c (excluded on BSD). */

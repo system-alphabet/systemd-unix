@@ -468,3 +468,9 @@ int epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
         pthread_mutex_unlock(&tbl->lock);
         return n_epoll;
 }
+
+/* BSD has no direct epoll_pwait2 syscall; route through the kqueue shim. */
+int missing_epoll_pwait2(int fd, struct epoll_event *events, int maxevents,
+                         const struct timespec *timeout, const sigset_t *sigmask) {
+        return epoll_pwait2(fd, events, maxevents, timeout, sigmask);
+}

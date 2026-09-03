@@ -1654,6 +1654,10 @@ conf.set10('HAVE_TPM2', 0)
 conf.set10('HAVE_SELINUX', 0)
 conf.set10('HAVE_APPARMOR', 0)
 
+# Provide empty deps for removed components that are still referenced in remaining code
+libselinux_cflags = declare_dependency()
+libapparmor_cflags = declare_dependency()
+
 conf.set10('ENABLE_SSH_PROXY_CONFIG', sshconfdir != 'no')
 conf.set10('ENABLE_SSH_USERDB_CONFIG', conf.get('ENABLE_USERDB') == 1 and sshdconfdir != 'no')
 

@@ -1373,11 +1373,13 @@ int decrypt_credential_and_warn(
                 return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Unknown encryption format, or corrupted data.");
 
         if (CRED_KEY_REQUIRES_TPM2_PK(h->id)) {
+#if HAVE_TPM2
                 r = tpm2_load_pcr_signature(tpm2_signature_path, &signature_json);
                 if (r == -ENOENT)
                         return log_error_errno(SYNTHETIC_ERRNO(EHOSTDOWN), "Couldn't find PCR signature file: %m");
                 if (r < 0)
                         return log_error_errno(r, "Failed to load PCR signature: %m");
+#endif
         }
 
         if (sd_id128_equal(h->id, CRED_AES256_GCM_BY_NULL)) {

@@ -24,8 +24,10 @@
 #include "time-util.h"
 #endif
 
+#include "alloc-util.h"
 #include "errno-util.h"
 #include "label-util.h"
+#include "path-util.h"
 #include "selinux-util.h"
 
 #if HAVE_SELINUX
@@ -43,12 +45,19 @@ static int last_policyload = 0;
 static struct selabel_handle *label_hnd = NULL;
 static bool have_status_page = false;
 
-static int mac_selinux_label_pre(int dir_fd, const char *path, mode_t mode) {
-        return mac_selinux_create_file_prepare_at(dir_fd, path, mode);
+static int mac_selinux_label_pre(int dir_fd, const char *path, mode_t mode, LabelContext *label_context) {
+        return mac_selinux_create_file_prepare_at(dir_fd, path, mode, label_context);
 }
 
-static int mac_selinux_label_post(int dir_fd, const char *path, bool created) {
-        mac_selinux_create_file_clear();
+static int mac_selinux_label_post(int dir_fd, const char *path, bool created, LabelContext *label_context) {
+        if (label_context) {
+#if HAVE_SELINUX
+                PROTECT_ERRNO;
+                (void) sym_setfscreatecon_raw(NULL);
+#endif
+        } else
+                mac_selinux_create_file_clear();
+
         return 0;
 }
 
@@ -421,7 +430,8 @@ int mac_selinux_fix_full(
                 int atfd,
                 const char *inode_path,
                 const char *label_path,
-                LabelFixFlags flags) {
+                LabelFixFlags flags,
+                LabelContext *label_context) {
 
         assert(atfd >= 0 || atfd == AT_FDCWD);
         assert(atfd >= 0 || inode_path);
@@ -694,7 +704,8 @@ static int selinux_create_file_prepare_abspath(const char *abspath, mode_t mode)
 int mac_selinux_create_file_prepare_at(
                 int dir_fd,
                 const char *path,
-                mode_t mode) {
+                mode_t mode,
+                LabelContext *label_context) {
 
 #if HAVE_SELINUX
         _cleanup_free_ char *abspath = NULL;
@@ -869,4 +880,18 @@ int mac_selinux_bind(int fd, const struct sockaddr *addr, socklen_t addrlen) {
 skipped:
 #endif
         return RET_NERRNO(bind(fd, addr, addrlen));
+}
+
+int mac_selinux_label_context_new(const char *root, LabelContext **ret) {
+        assert(root);
+        assert(!empty_or_root(root));
+        assert(ret);
+
+        /* SELinux support is stripped in this build, so no label context is ever created. */
+        *ret = NULL;
+        return 0;
+}
+
+LabelContext* mac_selinux_label_context_free(LabelContext *c) {
+        return mfree(c);
 }

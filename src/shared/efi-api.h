@@ -18,5 +18,8 @@ int efi_get_boot_order(uint16_t **ret_order);
 int efi_set_boot_order(const uint16_t *order, size_t n);
 int efi_get_boot_options(uint16_t **ret_options);
 
+int efi_get_active_pcr_banks(uint32_t *ret);
+bool efi_has_tpm2(void);
+
 sd_id128_t efi_guid_to_id128(const void *guid);
 void efi_id128_to_guid(sd_id128_t id, void *ret_guid);

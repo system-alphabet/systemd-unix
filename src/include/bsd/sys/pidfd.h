@@ -2,6 +2,7 @@
 #pragma once
 
 #include <sys/types.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
@@ -12,6 +13,10 @@ extern "C" {
 
 int pidfd_open(pid_t pid, unsigned int flags);
 int pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags);
+
+/* Flags for pidfd_open().  */
+#define PIDFD_NONBLOCK	O_NONBLOCK
+#define PIDFD_THREAD	O_EXCL
 
 /* pidfd_info and PIDFD_GET_INFO (Linux 6.13+, stubbed for compilation) */
 #define PIDFS_IOCTL_MAGIC 0xFF

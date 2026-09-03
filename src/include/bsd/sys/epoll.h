@@ -51,6 +51,14 @@ int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
 int epoll_pwait2(int epfd, struct epoll_event *events, int maxevents, const struct timespec *timeout, const sigset_t *sigmask);
 
+/* Syscall-direct wrapper (epoll_pwait2 is unavailable in some libcs). */
+int missing_epoll_pwait2(
+                int fd,
+                struct epoll_event *events,
+                int maxevents,
+                const struct timespec *timeout,
+                const sigset_t *sigmask);
+
 #ifdef __cplusplus
 }
 #endif

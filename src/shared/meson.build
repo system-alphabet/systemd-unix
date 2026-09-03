@@ -175,6 +175,7 @@ shared_sources = files(
         'rm-rf.c',
         'seccomp-util.c',
         'securebits-util.c',
+        'selinux-util.c',
 
         'serialize.c',
         'service-util.c',

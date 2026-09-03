@@ -15,6 +15,7 @@
 #include "stat-util.h"
 #include "stdio-util.h"
 #include "string-util.h"
+#include "tpm2-util.h"                  /* IWYU pragma: keep */
 
 #include "utf8.h"
 
@@ -525,6 +526,127 @@ int efi_get_boot_options(uint16_t **ret_options) {
         *ret_options = TAKE_PTR(list);
 
         return count;
+#else
+        return -EOPNOTSUPP;
+#endif
+}
+
+int efi_get_active_pcr_banks(uint32_t *ret) {
+#if ENABLE_EFI
+        static uint32_t cache = 0;
+        static bool cache_valid = false;
+        int r;
+
+        /* Returns the enabled PCR banks as bitmask, as reported by firmware. If the bitmask is returned as
+         * UINT32_MAX, the firmware supports the TCG protocol, but in a version too old to report this
+         * information. */
+
+        if (!cache_valid) {
+                _cleanup_free_ char *active_pcr_banks = NULL;
+                r = efi_get_variable_string(EFI_LOADER_VARIABLE_STR("LoaderTpm2ActivePcrBanks"), &active_pcr_banks);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to read LoaderTpm2ActivePcrBanks variable: %m");
+
+                uint32_t efi_bits;
+                r = safe_atou32_full(active_pcr_banks, 16, &efi_bits);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to parse LoaderTpm2ActivePcrBanks variable: %m");
+
+                if (efi_bits == UINT32_MAX)
+                        /* UINT32_MAX means that the firmware API doesn't implement GetActivePcrBanks() and caller must guess */
+                        cache = UINT32_MAX;
+                else {
+                        /* EFI TPM protocol uses different bit values for the hash algorithms, let's convert */
+                        static const struct {
+                                uint32_t efi;
+                                uint32_t tcg;
+                        } table[] = {
+                                { EFI_TCG2_BOOT_HASH_ALG_SHA1,   1U << TPM2_ALG_SHA1   },
+                                { EFI_TCG2_BOOT_HASH_ALG_SHA256, 1U << TPM2_ALG_SHA256 },
+                                { EFI_TCG2_BOOT_HASH_ALG_SHA384, 1U << TPM2_ALG_SHA384 },
+                                { EFI_TCG2_BOOT_HASH_ALG_SHA512, 1U << TPM2_ALG_SHA512 },
+                        };
+
+                        uint32_t tcg_bits = 0;
+                        FOREACH_ELEMENT(t, table)
+                                SET_FLAG(tcg_bits, t->tcg, efi_bits & t->efi);
+
+                        cache = tcg_bits;
+                }
+
+                cache_valid = true;
+        }
+
+        if (ret)
+                *ret = cache;
+
+        return 0;
+#else
+        return -EOPNOTSUPP;
+#endif
+}
+
+#if ENABLE_EFI
+static int loader_has_tpm2(void) {
+        uint32_t active_pcr_banks;
+        int r;
+
+        r = efi_get_active_pcr_banks(&active_pcr_banks);
+        if (r < 0)
+                return r;
+
+        return active_pcr_banks != 0;
+}
+#endif
+
+bool efi_has_tpm2(void) {
+#if ENABLE_EFI
+        static int cache = -1;
+        int r;
+
+        /* Returns whether the system has a TPM2 chip which is known to the EFI firmware. */
+
+        if (cache >= 0)
+                return cache;
+
+        /* First, check if we are on an EFI boot at all. */
+        if (!is_efi_boot())
+                return (cache = false);
+
+        /* Secondly, check if the loader told us, as that is the most accurate source of information
+         * regarding the firmware's setup */
+        r = loader_has_tpm2();
+        if (r >= 0)
+                return (cache = r);
+
+        /* Then, check if the ACPI table "TPM2" exists, which is the TPM2 event log table, see:
+         * https://trustedcomputinggroup.org/wp-content/uploads/TCG_ACPIGeneralSpecification_v1.20_r8.pdf
+         * This table exists whenever the firmware knows ACPI and is hooked up to TPM2.
+         * Note that in some cases, for example with EDK2 2025.2 with the default arm64 config, this ACPI
+         * table is present even if TPM2 support is not enabled in the firmware. */
+        if (access("/sys/firmware/acpi/tables/TPM2", F_OK) >= 0)
+                return (cache = true);
+        if (errno != ENOENT)
+                log_debug_errno(errno, "Unable to test whether /sys/firmware/acpi/tables/TPM2 exists, assuming it doesn't: %m");
+
+        /* As the last try, check if the EFI firmware provides the EFI_TCG2_FINAL_EVENTS_TABLE
+         * stored in EFI configuration table, see:
+         *
+         * https://trustedcomputinggroup.org/wp-content/uploads/EFI-Protocol-Specification-rev13-160330final.pdf */
+        if (access("/sys/kernel/security/tpm0/binary_bios_measurements", F_OK) >= 0) {
+                _cleanup_free_ char *major = NULL;
+
+                /* The EFI table might exist for TPM 1.2 as well, hence let's check explicitly which TPM version we are looking at here. */
+                r = read_virtual_file("/sys/class/tpm/tpm0/tpm_version_major", SIZE_MAX, &major, /* ret_size= */ NULL);
+                if (r >= 0)
+                        return (cache = streq(strstrip(major), "2"));
+
+                log_debug_errno(r, "Unable to read /sys/class/tpm/tpm0/tpm_version_major, assuming TPM does not qualify as TPM2: %m");
+
+        } else if (errno != ENOENT)
+                  log_debug_errno(errno, "Unable to test whether /sys/kernel/security/tpm0/binary_bios_measurements exists, assuming it doesn't: %m");
+
+        return (cache = false);
 #else
         return -EOPNOTSUPP;
 #endif
