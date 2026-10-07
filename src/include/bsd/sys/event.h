@@ -6,6 +6,18 @@
 #include <time.h>
 #include <signal.h>
 
+/* On a real BSD system libc ships <sys/event.h>, i.e. the EV_SET() macro and struct kevent with its
+ * ext[] field. Prefer that header over the definitions below: they are a stand-in for the system
+ * header that only exists so that -Dlibc=bsd can be compiled on a Linux host for build validation,
+ * where neither <sys/event.h> nor kqueue() are available. The stand-in's struct kevent differs in
+ * size from FreeBSD's, so it must never be combined with the real kevent().
+ *
+ * This condition must match the one deciding whether src/libc/bsd/kqueue-stubs.c is compiled, see
+ * src/libc/bsd/meson.build. */
+#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)
+#include_next <sys/event.h>
+#else
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -100,3 +112,4 @@ void EV_SET(struct kevent *kev, uintptr_t ident, int16_t filter,
 #ifdef __cplusplus
 }
 #endif
+#endif /* real <sys/event.h> available */

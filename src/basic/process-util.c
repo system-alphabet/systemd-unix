@@ -2,6 +2,9 @@
 
 #include <linux/oom.h>
 #include <pthread.h>
+#ifdef __FreeBSD__
+#include <pthread_np.h>
+#endif
 #include <spawn.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -1143,8 +1146,13 @@ int pidref_from_same_root_fs(PidRef *a, PidRef *b) {
 bool is_main_thread(void) {
         static thread_local int cached = -1;
 
-        if (cached < 0)
+        if (cached < 0) {
+#if defined(__FreeBSD__)
+                cached = pthread_main_np() != 0;
+#else
                 cached = getpid_cached() == gettid();
+#endif
+        }
 
         return cached;
 }
@@ -1637,8 +1645,12 @@ int pidref_safe_fork_full(
         if (flags & (FORK_DEATHSIG_SIGTERM|FORK_DEATHSIG_SIGINT|FORK_DEATHSIG_SIGKILL)) {
                 r = prctl_safe(PR_SET_PDEATHSIG, fork_flags_to_signal(flags), 0, 0, 0);
                 if (r < 0) {
-                        log_full_errno(prio, r, "Failed to set death signal: %m");
-                        _exit(EXIT_FAILURE);
+                        if (r == -ENOSYS)
+                                log_debug_errno(r, "Failed to set death signal, ignoring: %m");
+                        else {
+                                log_full_errno(prio, r, "Failed to set death signal: %m");
+                                _exit(EXIT_FAILURE);
+                        }
                 }
         }
 
