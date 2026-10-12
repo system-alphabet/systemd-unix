@@ -11,14 +11,13 @@ executables += [
                         libcryptsetup_cflags,
                         libmount_cflags,
                 ],
+                'symlinks' : [
+                        { 'name' : 'systemd-confext' },
+                ],
         },
 ]
 
 if conf.get('ENABLE_SYSEXT') == 1
-        install_symlink('systemd-confext',
-                        pointing_to : 'systemd-sysext',
-                        install_dir : bindir)
-
         install_data('io.systemd.sysext.policy',
                 install_dir : polkitpolicydir)
 endif

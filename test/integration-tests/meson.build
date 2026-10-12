@@ -97,6 +97,9 @@ foreach dirname : [
         'TEST-88-UPGRADE',
         'TEST-90-RESTRICT-FSACCESS',
         'TEST-91-LIVEUPDATE',
+        'TEST-93-CLONESETUP',
+        'TEST-94-COCO',
+        'TEST-95-DBUS-RECONNECT',
 ]
         subdir(dirname)
 endforeach
@@ -111,7 +114,8 @@ foreach integration_test : integration_tests
                 '--exit-code', integration_test['exit-code'].to_string(),
                 '--coredump-exclude-regex', integration_test['coredump-exclude-regex'],
                 '--sanitizer-exclude-regex', integration_test['sanitizer-exclude-regex'],
-                '--unit', '@0@.service'.format(integration_test['name'])
+                '--unit', '@0@.service'.format(integration_test['name']),
+                '--tap',
         ]
 
         if integration_test['vm']
@@ -174,5 +178,6 @@ foreach integration_test : integration_tests
                 timeout : integration_test['timeout'],
                 priority : integration_test['priority'],
                 suite : 'integration-tests',
+                protocol : 'tap',
         )
 endforeach

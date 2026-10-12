@@ -8,6 +8,7 @@ systemd_analyze_sources = files(
         'analyze-cat-config.c',
         'analyze-chid.c',
         'analyze-compare-versions.c',
+        'analyze-cpu-features.c',
         'analyze-critical-chain.c',
         'analyze-dlopen-metadata.c',
         'analyze-dot.c',
