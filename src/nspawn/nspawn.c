@@ -2622,7 +2622,6 @@ static int setup_journal(const char *directory, uid_t uid_shift, uid_t uid_range
                         /* n= */ 1,
                         uid_shift,
                         uid_range,
-                        arg_selinux_apifs_context,
                         MOUNT_NON_ROOT_ONLY);
 }
 
@@ -3369,8 +3368,7 @@ static int inner_child(
 
         r = mount_all(/* dest= */ NULL,
                       arg_mount_settings | MOUNT_IN_USERNS,
-                      arg_uid_shift,
-                      arg_selinux_apifs_context);
+                      arg_uid_shift);
         if (r < 0)
                 return r;
 
@@ -3429,7 +3427,6 @@ static int inner_child(
                         arg_n_custom_mounts,
                         0,
                         0,
-                        arg_selinux_apifs_context,
                         MOUNT_NON_ROOT_ONLY | MOUNT_IN_USERNS);
         if (r < 0)
                 return r;
@@ -4085,8 +4082,7 @@ static int outer_child(
         r = setup_volatile_mode(
                         directory,
                         arg_volatile_mode,
-                        chown_uid,
-                        arg_selinux_apifs_context);
+                        chown_uid);
         if (r < 0)
                 return r;
 
@@ -4134,7 +4130,6 @@ static int outer_child(
                         arg_n_custom_mounts,
                         chown_uid,
                         chown_range,
-                        arg_selinux_apifs_context,
                         MOUNT_ROOT_ONLY);
         if (r < 0)
                 return r;
@@ -4219,8 +4214,7 @@ static int outer_child(
         r = setup_volatile_mode_after_remount_idmap(
                         directory,
                         arg_volatile_mode,
-                        chown_uid,
-                        arg_selinux_apifs_context);
+                        chown_uid);
         if (r < 0)
                 return r;
 
@@ -4256,8 +4250,7 @@ static int outer_child(
 
         r = mount_all(directory,
                       arg_mount_settings,
-                      chown_uid,
-                      arg_selinux_apifs_context);
+                      chown_uid);
         if (r < 0)
                 return r;
 
@@ -4315,7 +4308,6 @@ static int outer_child(
                         arg_n_custom_mounts,
                         chown_uid,
                         chown_range,
-                        arg_selinux_apifs_context,
                         MOUNT_NON_ROOT_ONLY);
         if (r < 0)
                 return r;

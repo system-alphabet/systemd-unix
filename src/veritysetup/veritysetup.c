@@ -14,6 +14,7 @@
 #include "fileio.h"
 #include "fstab-util.h"
 #include "hexdecoct.h"
+#include "iovec-util.h"
 #include "log.h"
 #include "main-func.h"
 #include "parse-util.h"
@@ -21,7 +22,6 @@
 #include "pcrextend-util.h"
 #include "string-util.h"
 #include "strv.h"
-#include "tpm2-util.h"
 #include "verbs.h"
 
 static char *arg_hash = NULL; /* the hash algorithm */
@@ -41,14 +41,12 @@ static uint64_t arg_fec_roots = 2;
 static void *arg_root_hash_signature = NULL;
 static size_t arg_root_hash_signature_size = 0;
 static bool arg_root_hash_signature_auto = false;
-static char *arg_tpm2_measure_nvpcr = NULL;
 
 STATIC_DESTRUCTOR_REGISTER(arg_hash, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_salt, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_uuid, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_fec_what, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_root_hash_signature, freep);
-STATIC_DESTRUCTOR_REGISTER(arg_tpm2_measure_nvpcr, freep);
 
 static int parse_roothashsig_option(const char *option, bool strict) {
         _cleanup_free_ void *rhs = NULL;
@@ -275,21 +273,6 @@ static int parse_options(const char *options) {
                         if (r < 0)
                                 return r;
 
-                } else if ((val = startswith(word, "tpm2-measure-nvpcr="))) {
-                        r = isempty(val) ? 0 : parse_boolean(val);
-                        if (r == 0) {
-                                arg_tpm2_measure_nvpcr = mfree(arg_tpm2_measure_nvpcr);
-                                continue;
-                        }
-                        if (r > 0)
-                                val = "verity";
-                        else if (!tpm2_nvpcr_name_is_valid(val)) {
-                                log_warning("Invalid NvPCR name, ignoring: %s", word);
-                                continue;
-                        }
-
-                        if (free_and_strdup(&arg_tpm2_measure_nvpcr, val) < 0)
-                                return log_oom();
                 } else
                         log_warning("Encountered unknown option '%s', ignoring.", word);
         }

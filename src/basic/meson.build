@@ -219,10 +219,9 @@ if need_linux_uapi
         generated_sources += [filesystem_sets_c, filesystems_gperf_gperf, filesystems_gperf_h]
         basic_sources += [filesystem_sets_c, filesystems_gperf_h]
 
-test('kernel-filesystem-magics',
+        test('kernel-filesystem-magics',
              filesystem_sets_py,
-             args : ['check'],
-             env : ['CPP=@0@'.format(cpp)])
+             args : ['check', cpp, system_include_args])
 endif
 
 # Linux-specific source files that shouldn't be compiled on BSD
