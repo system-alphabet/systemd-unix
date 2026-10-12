@@ -541,11 +541,11 @@ units = [
         },
         {
           'file' : 'systemd-report-netstat.socket',
-          'conditions' : ['ENABLE_REPORT'],
+          'conditions' : ['ENABLE_REPORT', 'HAVE_LINUX_UAPI'],
         },
         {
           'file' : 'systemd-report-netstat@.service.in',
-          'conditions' : ['ENABLE_REPORT'],
+          'conditions' : ['ENABLE_REPORT', 'HAVE_LINUX_UAPI'],
         },
         {
           'file' : 'systemd-report-sign-plain.socket',

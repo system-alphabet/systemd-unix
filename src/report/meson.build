@@ -61,13 +61,6 @@ executables += [
                 ),
         },
         libexec_template + {
-                'name' : 'systemd-report-netstat',
-                'sources' : files(
-                        'report-netstat.c',
-                        'report-netstat-server.c',
-                ),
-        },
-        libexec_template + {
                 'name' : 'systemd-report-sign-plain',
                 'sources' : files(
                         'report-sign-plain.c',
@@ -84,3 +77,16 @@ executables += [
                 'install' : have_standalone_binaries ? 'both' : 'yes',
         },
 ]
+
+if conf.get('HAVE_LINUX_UAPI') == 1
+        # Needs sd-netlink, which is not built on BSD
+        executables += [
+                libexec_template + {
+                        'name' : 'systemd-report-netstat',
+                        'sources' : files(
+                                'report-netstat.c',
+                                'report-netstat-server.c',
+                        ),
+                },
+        ]
+endif

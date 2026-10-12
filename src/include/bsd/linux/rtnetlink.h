@@ -157,6 +157,36 @@ struct tcmsg {
 #define RTM_F_NOTIFY     0x100
 #define RTM_F_FIB_MATCH  0x200
 
+/* Per-device statistics (IFLA_STATS64 payload). Field order matches the Linux ABI, since the
+ * attribute is read as one blob. */
+struct rtnl_link_stats64 {
+        uint64_t rx_packets;
+        uint64_t tx_packets;
+        uint64_t rx_bytes;
+        uint64_t tx_bytes;
+        uint64_t rx_errors;
+        uint64_t tx_errors;
+        uint64_t rx_dropped;
+        uint64_t tx_dropped;
+        uint64_t multicast;
+        uint64_t collisions;
+        uint64_t rx_length_errors;
+        uint64_t rx_over_errors;
+        uint64_t rx_crc_errors;
+        uint64_t rx_frame_errors;
+        uint64_t rx_fifo_errors;
+        uint64_t rx_missed_errors;
+        uint64_t tx_aborted_errors;
+        uint64_t tx_carrier_errors;
+        uint64_t tx_fifo_errors;
+        uint64_t tx_heartbeat_errors;
+        uint64_t tx_window_errors;
+        uint64_t rx_compressed;
+        uint64_t tx_compressed;
+        uint64_t rx_nohandler;
+        uint64_t rx_alloc_failed;
+};
+
 /* IFLA_* link attributes */
 #define IFLA_UNSPEC       0
 #define IFLA_ADDRESS      1

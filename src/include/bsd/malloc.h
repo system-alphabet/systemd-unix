@@ -14,12 +14,24 @@
 #include <stdio.h>
 
 struct mallinfo2 {
-        size_t arena;
-        size_t hblkhd;
+        size_t arena;    /* non-mmapped space allocated from the system */
+        size_t ordblks;  /* number of free chunks */
+        size_t smblks;   /* number of free fastbins */
+        size_t hblkhd;   /* space in mmapped regions */
+        size_t usmblks;  /* always 0, preserved for backwards compatibility */
+        size_t fsmblks;  /* number of free fastbins */
+        size_t uordblks; /* total allocated space */
+        size_t fordblks; /* total free space */
+        size_t keepcost; /* top-most, releasable (via malloc_trim) space */
 };
 
 static inline struct mallinfo2 mallinfo2(void) {
-        struct mallinfo2 mi = { .arena = 0, .hblkhd = 0 };
+        /* jemalloc has no equivalent, report zeroes. */
+        struct mallinfo2 mi = {
+                .arena = 0, .ordblks = 0, .smblks = 0, .hblkhd = 0,
+                .usmblks = 0, .fsmblks = 0, .uordblks = 0, .fordblks = 0,
+                .keepcost = 0,
+        };
         return mi;
 }
 

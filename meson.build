@@ -1538,6 +1538,9 @@ conf.set_quoted('DEFAULT_LLMNR_MODE_STR', default_llmnr)
 
 conf.set10('ENABLE_REPORT', get_option('report').allowed())
 
+# Linux UAPI headers (hence sd-netlink, rtnetlink structs, etc.) are unavailable on BSD
+conf.set10('HAVE_LINUX_UAPI', get_option('libc') != 'bsd')
+
 default_dnssec = get_option('default-dnssec')
 if default_dnssec != 'no' and conf.get('HAVE_OPENSSL') == 0
         message('default-dnssec cannot be set to yes or allow-downgrade when openssl is disabled. Setting default-dnssec to no.')

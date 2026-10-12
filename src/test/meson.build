@@ -91,11 +91,9 @@ simple_tests += files(
         'test-execve.c',
         'test-exit-status.c',
         'test-extract-word.c',
-        'test-fanotify-util.c',
         'test-fdset.c',
         'test-fiemap.c',
         'test-fileio.c',
-        'test-firewall-util.c',
         'test-firstboot-util.c',
         'test-format-table.c',
         'test-format-util.c',
@@ -225,7 +223,11 @@ simple_tests += files(
 )
 
 if get_option('libc') != 'bsd'
-        simple_tests += files('test-local-addresses.c')
+        # nftables/iptables, sd-netlink and friends are not available on BSD
+        simple_tests += files(
+                'test-firewall-util.c',
+                'test-local-addresses.c',
+        )
 endif
 
 ############################################################
@@ -430,6 +432,7 @@ executables += [
         test_template + {
                 'sources' : files('test-nft-set.c'),
                 'type' : 'manual',
+                'conditions' : ['HAVE_LINUX_UAPI'],
         },
         test_template + {
                 'sources' : files('test-nss-hosts.c'),

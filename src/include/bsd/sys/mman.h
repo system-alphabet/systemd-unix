@@ -12,6 +12,16 @@
 
 /* memfd_create already declared in fcntl.h override */
 
+/* Linux-specific MAP_* values not present on FreeBSD. */
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE   0
+#endif
+
+/* FreeBSD's mincore() takes a char * vector, Linux's takes unsigned char *. */
+#if defined(__FreeBSD__)
+#define mincore(addr, len, vec) mincore((addr), (len), (char*)(vec))
+#endif
+
 /* Linux-specific MADV_* values not present on FreeBSD. */
 #ifndef MADV_DONTDUMP
 #define MADV_DONTDUMP   16

@@ -32,7 +32,6 @@ basic_sources = files(
         'escape.c',
         'ether-addr-util.c',
         'extract-word.c',
-        'fanotify-util.c',
         'fd-util.c',
         'fiber-ops.c',
         'fileio.c',
@@ -230,6 +229,7 @@ if need_linux_uapi
                 'arphrd-util.c',
                 'capability-list.c',
                 'capability-util.c',
+                'fanotify-util.c',
                 'filesystems.c',
         )
 endif
