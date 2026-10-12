@@ -309,25 +309,6 @@ units = [
           'file' : 'systemd-coredumpd.service.in',
           'conditions' : ['ENABLE_COREDUMP'],
         },
-        {
-          'file' : 'systemd-creds.socket',
-          'symlinks' : ['sockets.target.wants/'],
-        },
-        { 'file' : 'systemd-creds@.service' },
-        {
-          'file' : 'systemd-cryptenroll.socket',
-          'conditions' : ['HAVE_LIBCRYPTSETUP'],
-          'symlinks' : ['sockets.target.wants/'],
-        },
-        {
-          'file' : 'systemd-cryptenroll@.service',
-          'conditions' : ['HAVE_LIBCRYPTSETUP'],
-        },
-        {
-          'file' : 'systemd-cryptenroll-firstboot.service',
-          'conditions' : ['HAVE_LIBCRYPTSETUP', 'ENABLE_INITRD'],
-          'symlinks' : ['initrd.target.wants/'],
-        },
         { 'file' : 'systemd-exit.service' },
         { 'file' : 'systemd-factory-reset@.service.in' },
         {
@@ -526,20 +507,6 @@ units = [
         },
         { 'file' : 'systemd-reboot.service' },
         { 'file' : 'systemd-remount-fs.service.in' },
-        {
-          'file' : 'systemd-repart.service',
-          'conditions' : ['ENABLE_REPART'],
-          'symlinks' : ['sysinit.target.wants/', 'initrd-root-fs.target.wants/'],
-        },
-        {
-          'file' : 'systemd-repart.socket',
-          'conditions' : ['ENABLE_REPART'],
-          'symlinks' : ['sockets.target.wants/'],
-        },
-        {
-          'file' : 'systemd-repart@.service',
-          'conditions' : ['ENABLE_REPART'],
-        },
         {
           'file' : 'systemd-report-cgroup.socket',
           'conditions' : ['ENABLE_REPORT'],

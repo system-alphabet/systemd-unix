@@ -176,7 +176,8 @@ elif [ -f /run/TEST-82-SOFTREBOOT.touch ]; then
     test "$(jq -r '.payload.data[1].type.data' </run/TEST-82-SOFTREBOOT.signal)" = "soft-reboot"
 
     # Check that the system credentials survived the soft reboot.
-    test "$(systemd-creds cat --system kernelcmdlinecred)" = "uff"
+    # systemd-creds is not built in this fork; read the system credential store directly.
+    test "$(cat /run/credentials/@system/kernelcmdlinecred)" = "uff"
 
     # Upload another entry
     T="/dev/shm/fdstore.$RANDOM"

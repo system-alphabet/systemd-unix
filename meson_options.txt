@@ -209,8 +209,6 @@ option('randomseed', type : 'boolean',
        description : 'install systemd-random-seed.service')
 option('remote', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
        description : 'support for "journal over the network"')
-option('repart', type : 'feature', deprecated : { 'true' : 'enabled', 'false' : 'disabled' },
-       description : 'install the systemd-repart tool')
 option('report', type : 'feature',
        description : 'install the systemd-report stack')
 option('rfkill', type : 'boolean',

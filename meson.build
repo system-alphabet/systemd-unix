@@ -1536,18 +1536,6 @@ conf.set('DEFAULT_LLMNR_MODE',
          'RESOLVE_SUPPORT_' + default_llmnr.to_upper())
 conf.set_quoted('DEFAULT_LLMNR_MODE_STR', default_llmnr)
 
-have = get_option('measure').require(
-        conf.get('HAVE_BLKID') == 1 and
-        conf.get('HAVE_OPENSSL') == 1 and
-        conf.get('HAVE_TPM2') == 1,
-        error_message : 'blkid, openssl, and tpm2 required for systemd-measure').allowed()
-conf.set10('ENABLE_MEASURE', have)
-
-have = get_option('repart').require(
-        conf.get('HAVE_LIBFDISK') == 1,
-        error_message : 'fdisk required').allowed()
-conf.set10('ENABLE_REPART', have)
-
 conf.set10('ENABLE_REPORT', get_option('report').allowed())
 
 default_dnssec = get_option('default-dnssec')
@@ -1715,6 +1703,10 @@ efi_arch = {
         'x86_64'      : 'x64',
         'x86'         : 'ia32',
 }.get(host_machine.cpu_family(), '')
+
+# src/shared/efi-api.c needs the EFI machine type name at compile time even though
+# the EFI bootloader itself is not built in this fork (ENABLE_BOOTLOADER is forced off).
+conf.set_quoted('EFI_MACHINE_TYPE_NAME', efi_arch)
 
 pyelftools = pymod.find_installation('python3',
                                      required : false,
@@ -2055,9 +2047,6 @@ subdir('src/cgls')
 subdir('src/cgtop')
 subdir('src/clonesetup')
 subdir('src/coredump')
-subdir('src/creds')
-subdir('src/cryptenroll')
-subdir('src/cryptsetup')
 subdir('src/debug-generator')
 subdir('src/delta')
 subdir('src/detect-virt')
@@ -2098,7 +2087,6 @@ subdir('src/ptyfwd')
 subdir('src/quotacheck')
 subdir('src/random-seed')
 subdir('src/remount-fs')
-subdir('src/repart')
 subdir('src/report')
 subdir('src/reply-password')
 subdir('src/rfkill')
@@ -3050,7 +3038,6 @@ foreach tuple : [
         ['pstore'],
         ['quotacheck'],
         ['randomseed'],
-        ['repart'],
         ['report'],
         ['resolve'],
         ['rfkill'],

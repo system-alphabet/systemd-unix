@@ -34,8 +34,6 @@ foreach item : [
         ['systemd-cgls',        ''],
         ['systemd-cgtop',       ''],
         ['systemd-confext',     'ENABLE_SYSEXT'],
-        ['systemd-creds',       ''],
-        ['systemd-cryptenroll', 'HAVE_LIBCRYPTSETUP'],
         ['systemd-delta',       ''],
         ['systemd-detect-virt', ''],
         ['systemd-dissect',     'HAVE_BLKID'],

@@ -27,7 +27,6 @@ foreach item : [
         ['_storagectl',               ''],
         ['_systemd',                  ''],
         ['_systemd-analyze',          ''],
-        ['_systemd-cryptenroll',      'HAVE_LIBCRYPTSETUP'],
         ['_systemd-delta',            ''],
         ['_systemd-hwdb',             'ENABLE_HWDB'],
         ['_systemd-id128',            ''],
