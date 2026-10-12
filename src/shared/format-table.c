@@ -1142,7 +1142,10 @@ int table_add_many_internal(Table *t, TableDataType first_type, ...) {
 
                 case TABLE_MODE:
                 case TABLE_MODE_INODE_TYPE:
-                        buffer.mode = va_arg(ap, mode_t);
+                        /* mode_t is a type subject to default argument promotions on some platforms
+                         * (e.g. unsigned short on FreeBSD), so ask for the promoted type; passing the
+                         * unpromoted type to va_arg() has undefined behaviour (-Wvarargs). */
+                        buffer.mode = va_arg(ap, __typeof__(0 + (mode_t) 0));
                         data = &buffer.mode;
                         break;
 

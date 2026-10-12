@@ -26,8 +26,8 @@
 #include "time-util.h"
 #include "user-util.h"
 
-static int logind_set_wall_message(sd_bus *bus) {
 #if ENABLE_LOGIND
+static int logind_set_wall_message(sd_bus *bus) {
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
         _cleanup_free_ char *m = NULL;
         int r;
@@ -45,9 +45,10 @@ static int logind_set_wall_message(sd_bus *bus) {
         r = bus_call_method(bus, bus_login_mgr, "SetWallMessage", &error, NULL, "sb", m, !arg_no_wall);
         if (r < 0)
                 return log_warning_errno(r, "Failed to set wall message, ignoring: %s", bus_error_message(&error, r));
-#endif
+
         return 0;
 }
+#endif
 
 /* Ask systemd-logind, which might grant access to unprivileged users through polkit */
 int logind_reboot(enum action a) {

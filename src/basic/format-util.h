@@ -47,6 +47,11 @@ assert_cc(sizeof(gid_t) == sizeof(uint32_t));
 #  else
 #    error Unknown rlim_t size
 #  endif
+#elif defined(__FreeBSD__)
+/* On FreeBSD rlim_t is a signed __int64_t (see <sys/_types.h>), i.e. exactly int64_t on every
+ * architecture, so match its signedness rather than assuming "unsigned long long". */
+assert_cc(SIZEOF_RLIM_T == 8);
+#  define RLIM_FMT "%" PRId64
 #else
 /* Assume musl, and it unconditionally uses unsigned long long. */
 assert_cc(SIZEOF_RLIM_T == 8);

@@ -32,8 +32,14 @@ int get_locales(char ***ret);
 bool locale_is_valid(const char *name);
 int locale_is_installed(const char *name);
 
-#define _(String) dgettext(GETTEXT_PACKAGE, String)
-#define N_(String) String
+/* <libintl.h> may already provide these — our BSD compat header defines them as plain no-ops when
+ * gettext is unavailable. Only define them if they are missing, to avoid redefinition warnings. */
+#ifndef _
+#  define _(String) dgettext(GETTEXT_PACKAGE, String)
+#endif
+#ifndef N_
+#  define N_(String) String
+#endif
 
 bool is_locale_utf8(void);
 

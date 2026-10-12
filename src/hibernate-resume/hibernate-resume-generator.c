@@ -16,7 +16,9 @@
 #include "unit-name.h"
 
 static const char *arg_dest = NULL;
+#if HAVE_LIBCRYPTSETUP
 static const char *arg_dest_late = NULL;
+#endif
 static char *arg_resume_options = NULL;
 static char *arg_root_options = NULL;
 static bool arg_noresume = false;
@@ -157,7 +159,9 @@ static int run(const char *dest, const char *dest_early, const char *dest_late) 
         int r;
 
         arg_dest = ASSERT_PTR(dest);
+#if HAVE_LIBCRYPTSETUP
         arg_dest_late = ASSERT_PTR(dest_late);
+#endif
 
         /* Don't even consider resuming outside of initrd. */
         if (!in_initrd()) {

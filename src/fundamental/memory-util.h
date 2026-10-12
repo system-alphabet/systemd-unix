@@ -120,7 +120,11 @@ static inline uint64_t ALIGN_OFFSET_U64(uint64_t l, uint64_t ali) {
 #define ALIGN2_PTR(p) ((void*) ALIGN2((uintptr_t) p))
 #define ALIGN4_PTR(p) ((void*) ALIGN4((uintptr_t) p))
 #define ALIGN8_PTR(p) ((void*) ALIGN8((uintptr_t) p))
-#define ALIGN(l)  ALIGN_TO(l, sizeof(void*))
+/* On FreeBSD <machine/param.h> (pulled in transitively) already defines ALIGN() with the very same
+ * meaning (round up to sizeof(void*) == _ALIGNBYTES+1), so only define it if nobody else did. */
+#ifndef ALIGN
+#  define ALIGN(l)  ALIGN_TO(l, sizeof(void*))
+#endif
 #define ALIGN_PTR(p) ((void*) ALIGN((uintptr_t) (p)))
 
 /* Checks if the specified pointer is aligned as appropriate for the specific type */

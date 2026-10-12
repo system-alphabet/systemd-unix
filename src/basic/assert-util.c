@@ -8,8 +8,8 @@
 #include "log.h"
 
 /* Akin to glibc's __abort_msg; which is private and we hence cannot
- * use here. */
-static char *log_abort_msg = NULL;
+ * use here. It is kept around for post-mortem inspection only, hence never read back. */
+static char *log_abort_msg _unused_ = NULL;
 
 static void log_assert(
         int level,

@@ -37,7 +37,6 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void* timer_thread(void *arg) {
         struct timerfd_info *ti = arg;
-        struct kevent ev;
         struct timespec ts;
 
         pthread_mutex_lock(&ti->lock);

@@ -1185,12 +1185,8 @@ int copy_bytes_full(int fdf, int fdt, uint64_t max_bytes, unsigned int copy_flag
                 if (max_bytes != UINT64_MAX && m > max_bytes)
                         m = max_bytes;
 
-                /* Check for signals (simplified: no sigwait available here) */
-                if (copy_flags & (CBF_SIGINT | CBF_SIGTERM)) {
-                        struct sigaction old;
-                        /* Just test if a signal handler exists — a real check
-                         * would need signalfd/sigpending which is overkill. */
-                }
+                /* Note that CBF_SIGINT/CBF_SIGTERM are accepted but not acted upon: detecting
+                 * pending signals would need signalfd/sigpending, which is overkill here. */
 
                 n = read(fdf, buf, m);
                 if (n < 0)
