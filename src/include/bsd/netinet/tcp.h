@@ -1,4 +1,12 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
+
+/* The BSD <netinet/tcp.h> is not self-contained: it uses the BSD u_intN_t
+ * aliases from <sys/types.h>. FreeBSD happens to pull those in indirectly,
+ * OpenBSD does not, so include the prerequisites explicitly before handing
+ * over to the system header. */
+#include <sys/types.h>
+#include <netinet/in.h>
 
 /* TCP FSM states (from Linux / glibc <netinet/tcp.h>) */
 #define TCP_ESTABLISHED  1

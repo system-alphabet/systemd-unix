@@ -1,6 +1,13 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
+/* The BSD <netinet/ip.h> is not self-contained: it declares struct in_addr and
+ * struct in6_addr fields, and uses the BSD u_intN_t aliases. FreeBSD happens to
+ * pull those in indirectly, OpenBSD does not, so include the prerequisites
+ * explicitly before handing over to the system header. */
+#include <sys/types.h>
+#include <netinet/in.h>
+
 #include_next <netinet/ip.h>
 
 /*
