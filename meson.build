@@ -631,18 +631,71 @@ awk    = find_program('awk')
 diff   = find_program('diff')
 echo   = find_program('echo')
 env    = find_program('env')
+# The base system find(1) on platforms other than Linux is not GNU find: BSD's
+# find either lacks -printf entirely (OpenBSD, NetBSD, macOS) or, on FreeBSD,
+# implements it only partially — several conversions are documented as
+# "Unimplemented" and are silently skipped instead of failing. Driving it would
+# therefore produce empty or wrong output without any diagnostic. Always resolve
+# GNU find, which the BSD ports/packages systems install under the gfind(1) name,
+# and fail at configure time when neither is available.
 find   = find_program('find')
+# GNU findutils prints "find (GNU findutils) x.y"; BSD base find has no such
+# banner (and neither do busybox/toybox), so this distinguishes them reliably.
+if not run_command(find, '--version', check : false).stdout().contains('GNU findutils')
+        find = find_program('gfind', required : true)
+endif
 getent = find_program('getent', required : false)
 git    = find_program('git', required : false)
 gperf  = find_program('gperf')
 id     = find_program('id', required : false)
 ln     = find_program('ln')
+printf = find_program('printf')
 rsync  = find_program('rsync', required : false)
 sed    = find_program('sed')
+# The BSD base sed does not understand the GNU-only regex escapes used by
+# generate-dns_type-list.sed (its \w, which POSIX spells as [[:alnum:]_]), so
+# resolve GNU sed, which the BSD ports/packages systems install under gsed(1).
+if not run_command(sed, '--version', check : false).stdout().contains('GNU sed')
+        sed = find_program('gsed', required : true)
+endif
 sh     = find_program('sh')
 stat   = find_program('stat')
 
-ln_s = ln.full_path() + ' -frsT -- "${DESTDIR:-}@0@" "${DESTDIR:-}@1@"'
+# Symlinks are installed with meson's install_symlink() rather than shelling out
+# to ln(1): the -r and -T options it used to rely on are GNU-only and are absent
+# from the BSD ln(1) implementations.
+
+# systemd writes shell-sourceable files with printf(1) and the %q conversion
+# (see runtest_env below). %q is a GNU coreutils extension: POSIX only defines
+# diouxXfFeEgGaAcsb, and other systems' printf rejects it with "illegal format
+# character" and a non-zero exit. Some POSIX shells carry a builtin printf that
+# does understand %q, so fall back to one of them rather than emitting garbage.
+# Priority: GNU coreutils printf > zsh > ksh93 > mksh > ksh.
+printf_prefix = [printf]
+if not run_command(printf, '--version', check : false).stdout().contains('GNU coreutils')
+        printf_prefix = []
+
+        # Not every shell that goes by a ksh name is ksh93: the BSD base systems
+        # ship a pdksh-derived ksh with no builtin printf at all, which would
+        # silently exec the very printf(1) we are trying to replace. So check
+        # that the builtin actually understands %q instead of just checking that
+        # the binary exists.
+        foreach s : ['zsh', 'ksh93', 'mksh', 'ksh']
+                p = find_program(s, required : false)
+                if p.found() and run_command(p, '-c', 'printf "%q" "a b"', check : false).stdout() == 'a\\ b'
+                        # The shell's builtin printf is reached via "sh -c",
+                        # where $0 is the format string and $@ the arguments.
+                        printf_prefix = [p, '-c', 'printf "$0" "$@"']
+                        break
+                endif
+        endforeach
+
+        if printf_prefix.length() == 0
+                error('printf(1) is not GNU coreutils, and none of zsh/ksh93/mksh/ksh with a ' +
+                      'builtin printf supporting the %q conversion was found. %q is required ' +
+                      'to generate shell-sourceable files.')
+        endif
+endif
 
 # If -Dxxx-path option is found, use that. Otherwise, use the default from the
 # middle column; a full path is used directly, a relative path is converted to
@@ -1904,7 +1957,7 @@ endif
 
 runtest_env = custom_target(
         output : 'systemd-runtest.env',
-        command : ['printf',
+        command : printf_prefix + [
                    'SYSTEMD_TEST_DATA=%q\nSYSTEMD_CATALOG_DIR=%q\n',
                    meson.project_source_root() / 'test',
                    meson.project_build_root() / 'catalog'],
@@ -2409,12 +2462,13 @@ executables_by_name += { name_static : exe_static }
                                                 install_dir : symlink_dir,
                                                 kwargs : symlink_kwargs)
                         else
-                                # fs.relative_to() is not available before meson 1.3
-                                install_emptydir(symlink_dir, kwargs : symlink_kwargs)
-                                meson.add_install_script(sh, '-c',
-                                                         ln_s.format(exe_install_dir / name,
-                                                                     symlink_dir / symlink_name),
-                                                         kwargs : symlink_kwargs)
+                                # fs.relative_to() is not available before meson 1.3, but
+                                # install_symlink() itself is available since 0.61, so fall
+                                # back to an absolute symlink.
+                                install_symlink(symlink_name,
+                                                pointing_to : exe_install_dir / name,
+                                                install_dir : symlink_dir,
+                                                kwargs : symlink_kwargs)
                         endif
                 endforeach
         endif

@@ -33,11 +33,12 @@ if conf.get('ENABLE_SSH_PROXY_CONFIG') == 1
                                                              sshconfdir),
                                 install_dir : sshconfdir)
                 else
-                        install_emptydir(sshconfdir)
-
-                        meson.add_install_script(sh, '-c',
-                                ln_s.format(libexecdir / 'ssh_config.d' / '20-systemd-ssh-proxy.conf',
-                                            sshconfdir / '20-systemd-ssh-proxy.conf'))
+                        # fs.relative_to() needs meson 1.3, but install_symlink()
+                        # itself is available since 0.61.
+                        install_symlink(
+                                '20-systemd-ssh-proxy.conf',
+                                pointing_to : libexecdir / 'ssh_config.d' / '20-systemd-ssh-proxy.conf',
+                                install_dir : sshconfdir)
                 endif
         endif
 endif

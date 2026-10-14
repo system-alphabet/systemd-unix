@@ -11,11 +11,12 @@ if (not shellprofiledir.startswith(sysconfdir) or install_sysconfdir) and conf.g
                                                      shellprofiledir),
                         install_dir : shellprofiledir)
         else
-                install_emptydir(shellprofiledir)
-
-                meson.add_install_script(sh, '-c',
-                        ln_s.format(libexecdir / 'profile.d' / '70-systemd-shell-extra.sh',
-                                    shellprofiledir / '70-systemd-shell-extra.sh'))
+                # fs.relative_to() needs meson 1.3, but install_symlink() itself
+                # is available since 0.61, so fall back to an absolute symlink.
+                install_symlink(
+                        '70-systemd-shell-extra.sh',
+                        pointing_to : libexecdir / 'profile.d' / '70-systemd-shell-extra.sh',
+                        install_dir : shellprofiledir)
         endif
 endif
 
@@ -27,10 +28,11 @@ if (not shellprofiledir.startswith(sysconfdir) or install_sysconfdir) and conf.g
                                                      shellprofiledir),
                         install_dir : shellprofiledir)
         else
-                install_emptydir(shellprofiledir)
-
-                meson.add_install_script(sh, '-c',
-                        ln_s.format(libexecdir / 'profile.d' / '80-systemd-osc-context.sh',
-                                    shellprofiledir / '80-systemd-osc-context.sh'))
+                # fs.relative_to() needs meson 1.3, but install_symlink() itself
+                # is available since 0.61, so fall back to an absolute symlink.
+                install_symlink(
+                        '80-systemd-osc-context.sh',
+                        pointing_to : libexecdir / 'profile.d' / '80-systemd-osc-context.sh',
+                        install_dir : shellprofiledir)
         endif
 endif

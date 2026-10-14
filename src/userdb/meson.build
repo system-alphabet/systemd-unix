@@ -38,11 +38,12 @@ if conf.get('ENABLE_SSH_USERDB_CONFIG') == 1
                                                              sshdconfdir),
                                 install_dir : sshdconfdir)
                 else
-                        install_emptydir(sshdconfdir)
-
-                        meson.add_install_script(sh, '-c',
-                                ln_s.format(libexecdir / 'sshd_config.d' / '20-systemd-userdb.conf',
-                                            sshdconfdir / '20-systemd-userdb.conf'))
+                        # fs.relative_to() needs meson 1.3, but install_symlink()
+                        # itself is available since 0.61.
+                        install_symlink(
+                                '20-systemd-userdb.conf',
+                                pointing_to : libexecdir / 'sshd_config.d' / '20-systemd-userdb.conf',
+                                install_dir : sshdconfdir)
                 endif
         endif
 endif

@@ -931,10 +931,12 @@ if meson.version().version_compare('>=1.3.0')
                                              dbussessionservicedir),
                 install_dir : dbussessionservicedir)
 else
-        install_emptydir(dbussessionservicedir)
-        meson.add_install_script(sh, '-c',
-                ln_s.format(dbussystemservicedir / 'org.freedesktop.systemd1.service',
-                            dbussessionservicedir / 'org.freedesktop.systemd1.service'))
+        # fs.relative_to() needs meson 1.3, but install_symlink() itself is
+        # available since 0.61.
+        install_symlink(
+                'org.freedesktop.systemd1.service',
+                pointing_to : dbussystemservicedir / 'org.freedesktop.systemd1.service',
+                install_dir : dbussessionservicedir)
 endif
 
 subdir('user')
