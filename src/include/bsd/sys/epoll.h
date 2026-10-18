@@ -2,7 +2,9 @@
 #pragma once
 
 #include <sys/types.h>
+#include <signal.h>             /* sigset_t — <sys/epoll.h> prototypes use it, glibc's <sys/epoll.h> gets it for free */
 #include <stdint.h>
+#include <time.h>               /* struct timespec */
 
 #ifdef __cplusplus
 extern "C" {

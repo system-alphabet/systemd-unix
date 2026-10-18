@@ -52,6 +52,11 @@ assert_cc(sizeof(gid_t) == sizeof(uint32_t));
  * architecture, so match its signedness rather than assuming "unsigned long long". */
 assert_cc(SIZEOF_RLIM_T == 8);
 #  define RLIM_FMT "%" PRId64
+#elif defined(__NetBSD__)
+/* On NetBSD rlim_t is __uint64_t, which the compiler models as plain "unsigned long" — printf would
+ * complain about the "unsigned long long" that %llu promises. PRIu64 spells "lu" here, which matches. */
+assert_cc(SIZEOF_RLIM_T == 8);
+#  define RLIM_FMT "%" PRIu64
 #else
 /* Assume musl, and it unconditionally uses unsigned long long. */
 assert_cc(SIZEOF_RLIM_T == 8);

@@ -40,11 +40,25 @@ static int push_one(const char *fdname, const char *content) {
         assert(fdname);
         assert(content);
 
+#if HAVE_MEMFD_CREATE
         fd = memfd_create(fdname, MFD_CLOEXEC | MFD_ALLOW_SEALING);
         if (fd < 0) {
                 fprintf(stderr, "memfd_create(%s) failed: %m\n", fdname);
                 return -errno;
         }
+#else
+        /* libcs without memfd_create() (NetBSD < 11, OpenBSD): an unlinked temporary file provides the
+         * anonymous, seekable fd this test needs. Sealing is simply not exercised on such systems. */
+        char path[] = "/tmp/test-fdstore-XXXXXX";
+
+        fd = mkstemp(path);
+        if (fd >= 0)
+                (void) unlink(path);
+        if (fd < 0) {
+                fprintf(stderr, "mkstemp() for %s failed: %m\n", fdname);
+                return -errno;
+        }
+#endif
 
         size_t len = strlen(content);
         if (write(fd, content, len) != (ssize_t) len) {

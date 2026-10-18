@@ -38,8 +38,14 @@
  * separately-mmap'd stack and can be at any address relative to the caller. The fortify redirect happens
  * in <setjmp.h>'s declaration of siglongjmp; we sidestep it by declaring our own alias that links
  * directly to the unchecked "siglongjmp" symbol. musl doesn't fortify setjmp.h, so the alias is a plain
- * synonym there. */
+ * synonym there. NetBSD doesn't fortify setjmp.h either, and its <setjmp.h> declaration carries an
+ * __RENAME(__siglongjmp14) asm label — there is no standalone "siglongjmp" symbol to alias to — so call
+ * the declared function through a plain macro there. */
+#if defined(__NetBSD__)
+#define siglongjmp_unchecked(env, val) siglongjmp((env), (val))
+#else
 _noreturn_ extern void siglongjmp_unchecked(sigjmp_buf env, int val) __asm__("siglongjmp");
+#endif
 
 static thread_local sd_future *current_fiber = NULL;
 

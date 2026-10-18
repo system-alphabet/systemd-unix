@@ -103,6 +103,14 @@ int fallocate(int fd, int mode, off_t offset, off_t len);
 #ifndef AT_NO_AUTOMOUNT
 #define AT_NO_AUTOMOUNT  0x800
 #endif
+#ifndef AT_EMPTY_PATH
+/* Linux AT_EMPTY_PATH (act on the fd itself when the path is empty). FreeBSD
+ * defines it natively (as 0x4000); NetBSD has no equivalent, and 0x1000 is
+ * unused in its AT_* range (its flags stop at AT_REMOVEDIR 0x800). The kernel
+ * will reject the flag, so empty-path operations degrade to an error there —
+ * same as forward.h's long-standing fallback for headers that don't define it. */
+#define AT_EMPTY_PATH  0x1000
+#endif
 #ifndef RESOLVE_NO_SYMLINKS
 #define RESOLVE_NO_SYMLINKS     0x01
 #endif
@@ -134,6 +142,13 @@ int fallocate(int fd, int mode, off_t offset, off_t len);
 #endif
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
+#endif
+#ifndef O_PATH
+/* FreeBSD has O_PATH; NetBSD has no path-only open at all. Borrow a bit that <fcntl.h> leaves unused (the
+ * highest one NetBSD defines is O_CLOFORK at 0x08000000) so that flag checks such as `flags & O_PATH`
+ * keep working. The kernel will treat it as O_RDONLY, i.e. this is an approximation: unlike Linux, which
+ * makes O_PATH dominate over O_ACCMODE, combining it with O_WRONLY still opens for writing. */
+#define O_PATH 0x10000000
 #endif
 
 /* Linux-specific */

@@ -10,15 +10,20 @@
 #define MFD_ALLOW_SEALING 0x0002U
 #endif
 
-/* memfd_create already declared in fcntl.h override */
+/*
+ * memfd_create(): Linux/glibc <sys/mman.h> and FreeBSD declare it there; NetBSD ≥ 11 too. On OpenBSD and
+ * NetBSD < 11 <sys/mman.h> has no such declaration (test-fdstore.c includes only this header, not
+ * <fcntl.h>), so repeat it here — a repeat declaration with identical types is legal in C and C++.
+ */
+int memfd_create(const char *name, unsigned int flags);
 
 /* Linux-specific MAP_* values not present on FreeBSD. */
 #ifndef MAP_NORESERVE
 #define MAP_NORESERVE   0
 #endif
 
-/* FreeBSD's mincore() takes a char * vector, Linux's takes unsigned char *. */
-#if defined(__FreeBSD__)
+/* mincore() takes a char * vector on FreeBSD and NetBSD, unsigned char * on Linux. */
+#if defined(__FreeBSD__) || defined(__NetBSD__)
 #define mincore(addr, len, vec) mincore((addr), (len), (char*)(vec))
 #endif
 

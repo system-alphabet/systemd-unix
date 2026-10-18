@@ -11,6 +11,10 @@
  * always return ENOSYS).
  */
 
+/* OpenBSD's <sys/mount.h> is not self-contained: it (transitively) declares
+ * uid_t, int32_t, u_short, caddr_t and friends through <sys/ucred.h>. FreeBSD
+ * happens to pull those in already, so this is harmless there. */
+#include <sys/types.h>
 #include_next <sys/mount.h>
 
 struct mount_attr;

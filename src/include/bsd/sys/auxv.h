@@ -4,9 +4,16 @@
 /*
  * FreeBSD provides getauxval() in <sys/auxv.h> (since FreeBSD 12).
  * This shim ensures the function is declared when code includes <sys/auxv.h>.
+ *
+ * NetBSD has no <sys/auxv.h> at all; its AT_* constants live in <sys/exec_elf.h>, so fall back to that
+ * instead of blindly using include_next, which would fail with "file not found".
  */
 
-#include_next <sys/auxv.h>
+#if defined(__has_include_next) && __has_include_next(<sys/auxv.h>)
+#  include_next <sys/auxv.h>
+#elif defined(__has_include) && __has_include(<sys/exec_elf.h>)
+#  include <sys/exec_elf.h>
+#endif
 
 #ifndef AT_PHDR
 #define AT_PHDR                3

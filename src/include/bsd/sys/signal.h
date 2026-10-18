@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
+/* NetBSD's <sys/siginfo.h> (pulled in below) uses pid_t without declaring it itself, so make sure the
+ * prerequisite is in place first. */
+#include <sys/types.h>
+
 #include_next <sys/signal.h>
 
 /*
@@ -56,6 +60,25 @@
 #endif
 #ifndef SEGV_CPERR
 #define SEGV_CPERR      10
+#endif
+#ifndef SEGV_PKUERR
+/* Protection key violation — NetBSD only defines SEGV_MAPERR/SEGV_ACCERR. */
+#define SEGV_PKUERR     4
+#endif
+
+#if defined(__NetBSD__)
+/* NetBSD has no sigisemptyset(3); FreeBSD declares one in <signal.h>. Scan the
+ * standard signal numbers — the bitmap covers 0.._NSIG-1 (64 on NetBSD). Use the
+ * __sigismember() bitmap macro from <sys/sigtypes.h> rather than sigismember():
+ * in userland the latter is only a function declaration in <signal.h> (which
+ * has not been processed yet at this point), and its __RENAME()d symbol cannot
+ * be used from here. */
+static inline int sigisemptyset(const sigset_t *set) {
+        for (int i = 1; i < _NSIG; i++)
+                if (__sigismember(set, i))
+                        return 0;
+        return 1;
+}
 #endif
 
 /* Linux-specific si_code values for SIGBUS */

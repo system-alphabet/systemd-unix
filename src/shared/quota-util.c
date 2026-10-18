@@ -31,7 +31,15 @@ int quotactl_fd_with_fallback(int fd, int cmd, int id, void *addr) {
         if (r < 0)
                 return r;
 
+#if defined(__NetBSD__)
+        /* NetBSD's quotactl() survives only as a legacy .compat entry that modern headers no longer
+         * declare (the current API is quotakey/quotaval, which bsd/sys/quota.h does not wrap), and the
+         * Linux command encoding used here could not work there anyway — don't bind the symbol at all,
+         * otherwise the linker's compat-reference warning trips -Wl,--fatal-warnings. */
+        return -ENOSYS;
+#else
         return RET_NERRNO(quotactl(cmd, devnode, id, addr));
+#endif
 }
 
 int quota_query_proj_id(int fd, uint32_t proj_id, struct dqblk *ret_req) {

@@ -55,6 +55,16 @@ struct statfs;
 struct statx_timestamp;
 struct statx;
 struct termios;
+/* NetBSD puts struct timespec in <sys/timespec.h> and sigset_t in <sys/signal.h>, neither of which
+ * <sys/types.h> pulls in — glibc and FreeBSD do provide both there. An incomplete struct timespec is not
+ * enough either: fs-util.h takes a "const struct timespec[static 1]" parameter and an array element has
+ * to be complete. Include the real headers on NetBSD; everywhere else <time.h>/<signal.h> stay out of this
+ * header so that the forward declarations keep doing their job. */
+#if defined(__NetBSD__)
+#  include <sys/signal.h>
+#  include <sys/timespec.h>
+#endif
+struct timespec;
 struct tm;
 struct ucred;
 struct unix_diag_msg;

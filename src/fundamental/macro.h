@@ -178,6 +178,7 @@
 #define U64_GB (UINT64_C(1024) * U64_MB)
 
 #undef MAX
+#undef __MAX
 #define MAX(a, b) __MAX(UNIQ, a, UNIQ, b)
 #define __MAX(aq, a, bq, b)                             \
         ({                                              \
@@ -243,6 +244,7 @@
         })
 
 #undef MIN
+#undef __MIN
 #define MIN(a, b) __MIN(UNIQ, a, UNIQ, b)
 #define __MIN(aq, a, bq, b)                             \
         ({                                              \

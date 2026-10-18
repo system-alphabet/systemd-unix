@@ -113,3 +113,114 @@ int __clone2(int (*fn)(void *), void *stack_base, size_t stack_size, int flags, 
 
 /* Non-ia64 builds use clone(); on FreeBSD we have neither so we pick __clone2. */
 #define HAVE_CLONE 0
+
+#if defined(__NetBSD__)
+
+/*
+ * NetBSD has none of the Linux CPU-set interface: no cpu_set_t, no CPU_ALLOC()/CPU_SET_S()/CPU_COUNT_S(),
+ * and no plain sched_getaffinity(). What it does have in <sys/sched.h> is an opaque cpuset_t plus a
+ * cpuset_create()/cpuset_isset()/cpuset_size() API. Because struct _cpuset is never defined in any
+ * installed header, sizeof(cpuset_t) is unknown at compile time, so the malloc()-based interface that
+ * src/shared/cpu-set-util.c is built around cannot be layered on top of it. Model Linux's bitmap
+ * semantics ourselves and translate in sched_getaffinity().
+ */
+
+#include <errno.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* Same layout contract as glibc: cpu_set_t is a word-aligned bitmap, CPU_ALLOC_SIZE() turns a CPU count
+ * into a size in bytes, and the _S variants take that size rather than deriving it from the type. */
+typedef union {
+        unsigned long __bits[1024 / (sizeof(unsigned long) * 8)];
+} cpu_set_t;
+
+#define CPU_ALLOC_SIZE(n) \
+        (((((n) + sizeof(unsigned long) * 8 - 1) / (sizeof(unsigned long) * 8))) * sizeof(unsigned long))
+
+#define CPU_ALLOC(n) malloc(CPU_ALLOC_SIZE(n))
+#define CPU_FREE(p)  free(p)
+
+#define CPU_ZERO(set)       memset((set), 0, sizeof(cpu_set_t))
+#define CPU_ZERO_S(size, set) memset((set), 0, (size))
+
+#define CPU_SET(cpu, set)   CPU_SET_S((cpu), sizeof(cpu_set_t), (set))
+#define CPU_CLR(cpu, set)   CPU_CLR_S((cpu), sizeof(cpu_set_t), (set))
+#define CPU_ISSET(cpu, set) CPU_ISSET_S((cpu), sizeof(cpu_set_t), (set))
+
+#define CPU_SET_S(cpu, size, set)                                           \
+        do {                                                                \
+                size_t _cpu_ = (cpu), _size_ = (size);                      \
+                unsigned char *_p_ = (unsigned char*) (set);                \
+                if (_cpu_ / 8 < _size_)                                     \
+                        _p_[_cpu_ / 8] |= (unsigned char) (1u << (_cpu_ % 8)); \
+        } while (false)
+
+#define CPU_CLR_S(cpu, size, set)                                           \
+        do {                                                                \
+                size_t _cpu_ = (cpu), _size_ = (size);                      \
+                unsigned char *_p_ = (unsigned char*) (set);                \
+                if (_cpu_ / 8 < _size_)                                     \
+                        _p_[_cpu_ / 8] &= (unsigned char) ~(1u << (_cpu_ % 8)); \
+        } while (false)
+
+#define CPU_ISSET_S(cpu, size, set)                                         \
+        ((size_t) (cpu) / 8 < (size_t) (size) &&                            \
+         ((((const unsigned char*) (set))[(size_t) (cpu) / 8]) &            \
+          (unsigned char) (1u << ((size_t) (cpu) % 8))) != 0)
+
+#define CPU_COUNT_S(size, set)                                             \
+        __extension__ ({                                                    \
+                size_t _size_ = (size);                                     \
+                const unsigned char *_p_ = (const unsigned char*) (set);    \
+                int _n_ = 0;                                                \
+                for (size_t _i_ = 0; _i_ < _size_; _i_++)                   \
+                        for (unsigned _b_ = 0; _b_ < 8; _b_++)              \
+                                if (_p_[_i_] & (unsigned char) (1u << _b_))  \
+                                        _n_++;                              \
+                _n_;                                                        \
+        })
+
+/* Linux's sched_getaffinity() takes a bitmap, NetBSD's _np variant takes an opaque cpuset_t. Translate,
+ * and fail with EINVAL when the caller's buffer is too small — that is what makes cpus_in_affinity_mask()
+ * in src/shared/cpu-set-util.c grow its buffer and retry. */
+static inline int sched_getaffinity(pid_t pid, size_t setsize, cpu_set_t *set) {
+        cpuset_t *c;
+        size_t nbits;
+        int r;
+
+        if (!set || setsize == 0)
+                return errno = EINVAL, -1;
+
+        c = cpuset_create();
+        if (!c)
+                return -1;
+
+        r = sched_getaffinity_np(pid, cpuset_size(c), c);
+        if (r < 0) {
+                cpuset_destroy(c);
+                return -1;
+        }
+
+        /* The opaque cpuset is a bitmap indexed by cpuid_t, so its size tells us the valid CPU range. */
+        nbits = cpuset_size(c) * 8;
+        memset(set, 0, setsize);
+
+        for (size_t i = 0; i < nbits; i++) {
+                if (!cpuset_isset((cpuid_t) i, c))
+                        continue;
+
+                if (i / 8 >= setsize) {
+                        cpuset_destroy(c);
+                        return errno = EINVAL, -1;
+                }
+
+                ((unsigned char*) set)[i / 8] |= (unsigned char) (1u << (i % 8));
+        }
+
+        cpuset_destroy(c);
+        return 0;
+}
+
+#endif /* __NetBSD__ */

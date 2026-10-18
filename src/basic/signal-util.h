@@ -79,7 +79,9 @@ extern const struct sigaction sigaction_nop_nocldstop;
 
 int parse_signo(const char *s, int *ret);
 
-static inline bool si_code_from_process(int si_code) {
+/* The parameter must not be called si_code: <sys/siginfo.h> on NetBSD does #define si_code _info._code,
+ * which would break the declaration. */
+static inline bool si_code_from_process(int si_code_value) {
         /* Returns true if the .si_code field of siginfo_t or the .ssi_code field of struct signalfd_siginfo
          * indicate that the signal originates from a userspace process, and hence the .si_pid/.ssi_pid field
          * is valid. This check is not obvious, since on one hand SI_USER/SI_QUEUE are supposed to be the
@@ -98,7 +100,7 @@ static inline bool si_code_from_process(int si_code) {
          *
          * From: https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/signal.h.html */
 
-        return si_code < 0 || IN_SET(si_code, SI_USER, SI_QUEUE);
+        return si_code_value < 0 || IN_SET(si_code_value, SI_USER, SI_QUEUE);
 }
 
 void sigterm_process_group_handler(int signal, siginfo_t *info, void *ucontext);

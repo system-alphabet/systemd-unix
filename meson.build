@@ -544,6 +544,15 @@ add_project_link_arguments(
 userspace_c_args += cc.get_supported_arguments(possible_cc_flags)
 userspace_c_ld_args += cc.get_supported_link_arguments(possible_link_flags)
 
+# NetBSD keeps everything past the mutex/cond primitives in a separate
+# libpthread.so (FreeBSD and glibc/musl fold it into libc), so targets that call
+# pthread_cancel()/pthread_create()/pthread_once() etc. directly — test-pressure,
+# for one — would otherwise fail to link. Probe for one of the libc-external
+# symbols to decide; --as-needed drops the flag where it is not needed.
+if not cc.has_function('pthread_cancel')
+        userspace_c_ld_args += '-lpthread'
+endif
+
 if cc.compiles('''
    #include <time.h>
    #include <inttypes.h>
@@ -615,7 +624,10 @@ conf.set('SIZEOF_DEV_T', cc.sizeof('dev_t', prefix : '#include <sys/types.h>'))
 conf.set('SIZEOF_INO_T', cc.sizeof('ino_t', prefix : '#include <sys/types.h>'))
 conf.set('SIZEOF_RLIM_T', cc.sizeof('rlim_t', prefix : '#include <sys/resource.h>'))
 conf.set('SIZEOF_TIME_T', cc.sizeof('time_t', prefix : '#include <sys/time.h>'))
-conf.set('SIZEOF_TIMEX_MEMBER', cc.sizeof('typeof(((struct timex *)0)->freq)', prefix : '#include <sys/timex.h>'))
+# <sys/timex.h> is not self-contained on NetBSD (it expects <sys/cdefs.h> and <sys/time.h> to have been
+# included first), so spell the prerequisites out — harmless everywhere else.
+conf.set('SIZEOF_TIMEX_MEMBER', cc.sizeof('typeof(((struct timex *)0)->freq)',
+        prefix : '#include <sys/cdefs.h>\n#include <sys/time.h>\n#include <sys/timex.h>'))
 
 long_max = cc.compute_int(
         'LONG_MAX',
@@ -783,6 +795,22 @@ foreach ident : [
         endif
         conf.set10('HAVE_' + ident[0], have)
 endforeach
+
+#####################################################################
+
+# memfd_create() is declared in <sys/mman.h> on Linux, FreeBSD and NetBSD >= 11, but older NetBSD and
+# OpenBSD have neither the declaration nor the libc symbol. test-fdstore links against libsystemd only,
+# so it needs a real symbol at link time there — probe for one via a function-pointer reference (which
+# defeats compiler builtins) and fall back to mkstemp() in the test when it is missing.
+have_memfd_create = cc.links('''
+        #define _GNU_SOURCE 1
+        #include <sys/mman.h>
+        int main(void) {
+                int (*volatile p)(const char *, unsigned int) = memfd_create;
+                (void) p;
+                return 0;
+        }''', name : 'memfd_create')
+conf.set10('HAVE_MEMFD_CREATE', have_memfd_create)
 
 #####################################################################
 
@@ -1096,6 +1124,10 @@ conf.set_quoted('EXTRA_EXEC_SEARCH_PATH_SUFFIX', extra_exec_search_path)
 #####################################################################
 
 libm = cc.find_library('m')
+
+# On NetBSD gettext lives in a separate libintl (FreeBSD folds it into libc,
+# OpenBSD doesn't ship it at all); libfido2-util.c's _() expands to dgettext().
+intl = cc.find_library('intl', required : false)
 
 # On some architectures, libatomic is required. But on some installations,
 # it is found, but actual linking fails. So let's try to use it opportunistically.
@@ -2948,7 +2980,19 @@ endif
 alt_time_epoch = run_command('date', '-Is', '-u', '-d', f'@@time_epoch@', check : false)
 if alt_time_epoch.returncode() != 0
         # If the above fails, maybe the date(1) uses BSD-style syntax
-        alt_time_epoch = run_command('date', '-Iseconds', '-u', '-r', f'@time_epoch@', check : true)
+        alt_time_epoch = run_command('date', '-Iseconds', '-u', '-r', f'@time_epoch@', check : false)
+endif
+if alt_time_epoch.returncode() != 0
+        # Neither the GNU style (-d @EPOCH -Is) nor the BSD style (-r) worked.
+        # NetBSD and OpenBSD date(1) have no -I option at all, so fall back to
+        # python, whose datetime formatting works unconditionally (meson
+        # requires python anyway). Output format matches GNU date -Is -u.
+        alt_time_epoch = run_command(
+                python,
+                '-c',
+                'import datetime, sys; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone.utc).isoformat(timespec="seconds"))',
+                '@0@'.format(time_epoch),
+                check : true)
 endif
 alt_time_epoch = alt_time_epoch.stdout().strip()
 

@@ -1,7 +1,12 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
-#include_next <malloc.h>
+/* FreeBSD ships a <malloc.h>, OpenBSD does not have one at all. Only hand over
+ * to the system header when it is actually there, otherwise the glibc extension
+ * stubs below are all there is. */
+#if defined(__has_include_next) && __has_include_next(<malloc.h>)
+#        include_next <malloc.h>
+#endif
 
 /*
  * glibc-specific malloc extensions used by systemd.

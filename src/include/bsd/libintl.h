@@ -3,20 +3,20 @@
 
 /*
  * Minimal shim for <libintl.h>.
- * FreeBSD provides <libintl.h> from gettext-libintl or the base system.
- * This shim ensures the header is always findable even when gettext is
- * not installed.
+ *
+ * Neither FreeBSD's base sysroot nor OpenBSD's ships <libintl.h>: gettext is
+ * an optional package on both. Hand over to the system header only when it is
+ * actually installed, otherwise fall back to no-op macros.
  */
 
-#ifdef __FreeBSD__
-/* FreeBSD may not have libintl.h in the base sysroot; provide stubs. */
-#define _(String) (String)
-#define N_(String) (String)
-#define gettext(String) (String)
-#define dgettext(Domain, String) (String)
-#define dcgettext(Domain, String, Type) (String)
-#define bindtextdomain(Domain, Directory) ((char *)(Directory))
-#define textdomain(Domain) ((char *)(Domain))
+#if defined(__has_include_next) && __has_include_next(<libintl.h>)
+#        include_next <libintl.h>
 #else
-#include_next <libintl.h>
+#        define _(String) (String)
+#        define N_(String) (String)
+#        define gettext(String) (String)
+#        define dgettext(Domain, String) (String)
+#        define dcgettext(Domain, String, Type) (String)
+#        define bindtextdomain(Domain, Directory) ((char *)(Directory))
+#        define textdomain(Domain) ((char *)(Domain))
 #endif

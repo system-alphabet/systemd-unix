@@ -27,6 +27,33 @@ static inline char *_bsd_strerror_r(int errnum, char *buf, size_t buflen) {
 #endif
 #define strerror_r(errnum, buf, buflen) _bsd_strerror_r(errnum, buf, buflen)
 
+/*
+ * explicit_bzero() — securely zero memory. FreeBSD, OpenBSD and DragonFly declare it in their headers, but
+ * NetBSD has never provided it (its libc exports only plain bzero(), which a compiler is free to optimize
+ * away), so supply it ourselves.
+ */
+#if !defined(__FreeBSD__) && !defined(__OpenBSD__) && !defined(__DragonFly__) && !defined(__APPLE__)
+static inline void explicit_bzero(void *p, size_t n) {
+        volatile unsigned char *v = (volatile unsigned char *) p;
+        while (n-- > 0)
+                *v++ = 0;
+}
+#endif
+
+/*
+ * mempcpy() — copy n bytes and return the destination pointer past the last byte written. FreeBSD and
+ * NetBSD ≥ 11 declare it in <string.h>; OpenBSD and NetBSD < 11 do not, so supply it ourselves.
+ */
+#if defined(__NetBSD__)
+#include <sys/param.h> /* for __NetBSD_Prereq__() */
+#endif
+
+#if defined(__OpenBSD__) || (defined(__NetBSD__) && !__NetBSD_Prereq__(11, 0, 0))
+static inline void *mempcpy(void *dest, const void *src, size_t n) {
+        return (char *) memcpy(dest, src, n) + n;
+}
+#endif
+
 #else
 #include_next <string.h>
 #endif

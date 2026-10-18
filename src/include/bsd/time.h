@@ -18,23 +18,23 @@
 #define CLOCK_BOOTTIME_ALARM    9
 #endif
 
-#else /* !__linux__ — FreeBSD */
+#else /* !__linux__ */
 
 /*
- * On FreeBSD, CLOCK_MONOTONIC (=4) already includes suspend time, so
- * CLOCK_BOOTTIME is defined as CLOCK_MONOTONIC.  systemd switch statements
- * expect CLOCK_BOOTTIME to be a distinct constant, so we redefine it to
- * an unused value (3).  The BSD compat layer maps it to CLOCK_MONOTONIC
- * before calling clock_gettime().
- */
-
-/*
- * FreeBSD defines CLOCK_BOOTTIME as CLOCK_MONOTONIC, which causes duplicate
- * case-label errors in switch statements.  Undefine it and give it a
- * distinct value (3, unused by FreeBSD).
+ * Neither FreeBSD nor NetBSD has a CLOCK_BOOTTIME, and switch statements over clock ids expect it to be a
+ * constant of its own. Give it a value the platform does not use for anything else and let the BSD compat
+ * layer map it to CLOCK_MONOTONIC before calling clock_gettime().
+ *
+ * The value cannot be shared: FreeBSD's clock ids run 0-6 plus 17/18, so it uses 3, whereas NetBSD's are
+ * CLOCK_REALTIME 0, CLOCK_VIRTUAL 1, CLOCK_PROF 2 and CLOCK_MONOTONIC 3 — reusing 3 there produced a
+ * "duplicate case value" against CLOCK_MONOTONIC.
  */
 #undef CLOCK_BOOTTIME
+#if defined(__NetBSD__)
+#define CLOCK_BOOTTIME  4
+#else
 #define CLOCK_BOOTTIME  3
+#endif
 
 #ifndef CLOCK_MONOTONIC_RAW
 #define CLOCK_MONOTONIC_RAW     6
@@ -48,4 +48,4 @@
 #define CLOCK_BOOTTIME_ALARM    18
 #endif
 
-#endif /* __linux__ */
+#endif /* !__linux__ */

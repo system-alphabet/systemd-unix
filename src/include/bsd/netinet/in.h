@@ -5,6 +5,36 @@
 #include_next <netinet/in.h>
 
 /*
+ * Linux (and FreeBSD) expose the 32-bit view of struct in6_addr as s6_addr32. NetBSD defines those accessors
+ * in <netinet6/in6.h>, but only under _KERNEL, so userspace code such as src/basic/in-addr-util.c has no way
+ * to reach them. Add the missing names.
+ */
+#if defined(__NetBSD__) && !defined(s6_addr32)
+#define s6_addr8    __u6_addr.__u6_addr8
+#define s6_addr16   __u6_addr.__u6_addr16
+#define s6_addr32   __u6_addr.__u6_addr32
+#endif
+
+/*
+ * NetBSD implements a different IPPROTO_IP/IPPROTO_IPV6 setsockopt() number space than Linux does, and
+ * the Linux numbers used below happen to land on options NetBSD does implement: 11 is IP_MULTICAST_LOOP,
+ * 19 is IP_PORTRANGE, 25 is IP_PKTINFO for IPPROTO_IP and IPV6_2292PKTOPTIONS for IPPROTO_IPV6. Handing
+ * them out would quietly reconfigure the socket instead of failing. None of these features exist on
+ * NetBSD either way, so give them numbers outside the range NetBSD assigns (IPv4 stops at 27, IPv6 at 64)
+ * and let the kernel answer ENOPROTOOPT — the honest answer for "not supported here".
+ */
+#if defined(__NetBSD__)
+#undef IP_RECVERR
+#define IP_RECVERR             100
+#undef IP_TRANSPARENT
+#define IP_TRANSPARENT         101
+#undef IP_RECVFRAGSIZE
+#define IP_RECVFRAGSIZE        102
+#undef IPV6_RECVERR
+#define IPV6_RECVERR           100
+#endif
+
+/*
  * Linux IP-level socket option constants not available on FreeBSD.
  */
 #ifndef IP_RECVERR

@@ -358,7 +358,7 @@ size_t udev_replace_whitespace(const char *str, char *to, size_t len) {
         i = strnspn(str, WHITESPACE, len);
 
         for (j = 0; j < len && i < len && str[i] != '\0'; i++) {
-                if (isspace(str[i])) {
+                if (isspace((unsigned char) str[i])) {
                         is_space = true;
                         continue;
                 }
@@ -406,7 +406,7 @@ size_t udev_replace_chars(char *str, const char *allow) {
                 }
 
                 /* if space is allowed, replace whitespace with ordinary space */
-                if (isspace(str[i]) && allow && strchr(allow, ' ')) {
+                if (isspace((unsigned char) str[i]) && allow && strchr(allow, ' ')) {
                         str[i] = ' ';
                         i++;
                         replaced++;

@@ -17,6 +17,13 @@
 #ifndef TIOCGPTPEER
 #define TIOCGPTPEER     0x5441
 #endif
+#ifndef TIOCGPTN
+/* Linux TIOCGPTN — query the number of a devpts pty. NetBSD has no devpts (and
+ * no TIOCGPTN), so ptsname_namespace() gets ENOTTY from this ioctl and reports
+ * the error; the value is only defined to make the code compile. Type 'T'
+ * number 0x30 collides with no existing NetBSD ioctl. */
+#define TIOCGPTN        0x80045430
+#endif
 #ifndef TIOCINQ
 #include <sys/filio.h>
 #define TIOCINQ         FIONREAD

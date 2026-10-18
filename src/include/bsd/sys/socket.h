@@ -54,6 +54,16 @@ struct ucred {
 #define AF_PACKET 17
 #endif
 
+/* AF_NETLINK — Linux address family for netlink sockets. FreeBSD grew a real one (38); NetBSD has none and
+ * its AF_MAX is 37, so 38 is outside the range NetBSD's socket() accepts and it answers EAFNOSUPPORT —
+ * which is what the sd-netlink stubs expect. */
+#ifndef AF_NETLINK
+#define AF_NETLINK 38
+#endif
+#ifndef PF_NETLINK
+#define PF_NETLINK AF_NETLINK
+#endif
+
 /* AF_MPLS — Linux address family for MPLS. */
 #ifndef AF_MPLS
 #define AF_MPLS 33
@@ -64,9 +74,26 @@ struct ucred {
 #define SOL_NETLINK 270
 #endif
 
+/* _ALIGN — FreeBSD defines it in <x86/_align.h>. NetBSD has no userspace name for it: only the
+ * kernel-internal __CMSG_ALIGN(), and its CMSG_ALIGN() is itself gated on _KERNEL, so the fallback below
+ * would otherwise reference an undefined _ALIGN(). */
+#if defined(__NetBSD__) && !defined(_ALIGN)
+#define _ALIGN(n) __CMSG_ALIGN(n)
+#endif
+
 /* CMSG_ALIGN — only defined in FreeBSD kernel space; define for userspace. */
 #ifndef CMSG_ALIGN
 #define CMSG_ALIGN(n) _ALIGN(n)
+#endif
+
+/* SO_PROTOCOL / SO_DOMAIN — Linux getsockopt() answers for the socket's protocol and address family.
+ * NetBSD has neither, and 38/39 are unused in its SOL_SOCKET option space, so the call fails with
+ * ENOPROTOOPT rather than colliding with SO_NOHEADER (0x100a) & co. */
+#ifndef SO_PROTOCOL
+#define SO_PROTOCOL 38
+#endif
+#ifndef SO_DOMAIN
+#define SO_DOMAIN 39
 #endif
 
 /* SO_SNDBUFFORCE — Linux-specific: forcibly set send buffer size. */

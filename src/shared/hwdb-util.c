@@ -447,7 +447,7 @@ static int insert_data(struct trie *trie, char **match_list, char *line, const c
         value++;
 
         /* Replace multiple leading spaces by a single space */
-        while (isblank(line[0]) && isblank(line[1]))
+        while (isblank((unsigned char) line[0]) && isblank((unsigned char) line[1]))
                 line++;
 
         if (isempty(line + 1))
@@ -504,7 +504,7 @@ static int import_file(struct trie *trie, int fd, const char *filename, uint16_t
 
                 /* strip trailing whitespace */
                 len = strlen(line);
-                while (len > 0 && isspace(line[len-1]))
+                while (len > 0 && isspace((unsigned char) line[len-1]))
                         len--;
                 line[len] = '\0';
 

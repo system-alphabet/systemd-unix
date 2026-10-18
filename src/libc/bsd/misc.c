@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <signal.h>
+#include <locale.h>
 #include <dlfcn.h>
 #ifdef __FreeBSD__
 #include <pthread_np.h>
@@ -567,6 +568,7 @@ int malloc_info(int options, FILE *stream) {
 /* sendfile — Linux-compatible wrapper around FreeBSD's sendfile(2). */
 ssize_t _systemd_sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 ssize_t _systemd_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
+#if defined(__FreeBSD__) || defined(__DragonFly__)
         off_t sbytes;
         int ret = sendfile(in_fd, out_fd, offset ? *offset : 0, count, NULL, &sbytes, 0);
         if (ret == 0) {
@@ -575,6 +577,59 @@ ssize_t _systemd_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
                 return (ssize_t)sbytes;
         }
         return -1;
+#else
+        /* NetBSD exports no FreeBSD-style sendfile(2) (nor one matching the
+         * Linux signature): emulate the Linux semantics with a read(2)/write(2)
+         * loop. *offset, when given, addresses the input and is advanced by
+         * the bytes transferred; otherwise the input's file position moves. */
+        uint8_t buf[64 * 1024];
+        size_t done = 0;
+        int failed = 0;
+
+        while (done < count) {
+                size_t want = count - done;
+                ssize_t rd, wr = 0;
+
+                if (want > sizeof(buf))
+                        want = sizeof(buf);
+
+                if (offset)
+                        rd = pread(in_fd, buf, want, *offset + (off_t) done);
+                else
+                        rd = read(in_fd, buf, want);
+
+                if (rd < 0) {
+                        if (errno == EINTR)
+                                continue;
+                        failed = 1;
+                        break;
+                }
+                if (rd == 0) /* EOF */
+                        break;
+
+                while (wr < rd) {
+                        ssize_t w = write(out_fd, buf + wr, (size_t) (rd - wr));
+                        if (w < 0) {
+                                if (errno == EINTR)
+                                        continue;
+                                failed = 1;
+                                break;
+                        }
+                        wr += w;
+                }
+                if (wr < rd) /* write error; errno already set */
+                        break;
+
+                done += (size_t) rd;
+        }
+
+        if (offset)
+                *offset += (off_t) done;
+
+        if (failed && done == 0)
+                return -1;
+        return (ssize_t) done;
+#endif
 }
 
 /* ── Linux stub implementations ── */
@@ -599,6 +654,48 @@ int prlimit(pid_t pid, int resource,
         (void)pid; (void)resource; (void)new_limit; (void)old_limit;
         return errno = ENOSYS, -1;
 }
+
+#if defined(__NetBSD__)
+/* NetBSD has no setresuid(2)/setresgid(2) syscalls, and its getresuid(2)/
+ * getresgid(2)-equivalents cannot expose the saved IDs either — the platform
+ * offers no way to emulate them fully (setreuid() cannot set the saved set
+ * independently). Fail loudly; declared in bsd/unistd.h for callers that expect
+ * the Linux interface, all of which handle errors by not changing credentials.
+ */
+int setresuid(uid_t ruid, uid_t euid, uid_t suid) {
+        (void)ruid; (void)euid; (void)suid;
+        return errno = ENOSYS, -1;
+}
+
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
+        (void)rgid; (void)egid; (void)sgid;
+        return errno = ENOSYS, -1;
+}
+
+int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid) {
+        (void)ruid; (void)euid; (void)suid;
+        return errno = ENOSYS, -1;
+}
+
+int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid) {
+        (void)rgid; (void)egid; (void)sgid;
+        return errno = ENOSYS, -1;
+}
+
+/* uselocale — see bsd/locale.h: no libc symbol exists, so model switching as a
+ * no-op that reports the global locale as current. */
+locale_t uselocale(locale_t newloc) {
+        (void)newloc;
+        return (locale_t) -1;
+}
+
+/* malloc_usable_size — NetBSD's <malloc.h> declares it, but its libc exports
+ * only the jemalloc-internal __je_malloc_usable_size(); wrap that. */
+size_t __je_malloc_usable_size(const void *ptr);
+size_t malloc_usable_size(const void *ptr) {
+        return __je_malloc_usable_size(ptr);
+}
+#endif
 
 /* POSIX message queues */
 int mq_getattr(int mqdes, struct mq_attr *attr) {
@@ -746,6 +843,24 @@ fallback:
                 return 0;
         }
 #else
+        if (type == AT_RANDOM) {
+                /* NetBSD exports no getauxval(3) and no elf_aux_info(3) either,
+                 * and the kernel's aux vector is not readable from userland, so
+                 * every probe reports "not present" (0). AT_RANDOM is the
+                 * exception: callers memcpy() 16 bytes from the address it
+                 * returns without a NULL check, so hand out a process-stable
+                 * buffer of kernel-grade random bytes instead. */
+                static unsigned char random16[16];
+                static bool initialized;
+
+                if (!__atomic_load_n(&initialized, __ATOMIC_ACQUIRE)) {
+                        arc4random_buf(random16, sizeof random16);
+                        __atomic_store_n(&initialized, true, __ATOMIC_RELEASE);
+                }
+
+                return (unsigned long) (uintptr_t) random16;
+        }
+
         (void)type;
         return 0;
 #endif
@@ -847,13 +962,21 @@ int rtnl_get_link_info_full(
 }
 
 /* Global environ — POSIX.1 requires this from <unistd.h> but FreeBSD may not
- * export it when _GNU_SOURCE is defined. */
+ * export it when _GNU_SOURCE is defined. NetBSD's libc exports it outright, and
+ * the link with -Wl,--warn-common --fatal-warnings rejects the redundant weak
+ * override ("common environ is overridden"), so leave it alone there. */
+#if !defined(__NetBSD__)
 char **environ __attribute__((weak));
+#endif
 
 /* pthread_once — FreeBSD's libc threading dispatch uses a jtable
  * mechanism. The default entries may not handle PTHREAD_ONCE_INIT's
  * NULL mutex correctly, returning EINVAL. Provide our own using
- * GCC/Clang atomic builtins (no library dependency). */
+ * GCC/Clang atomic builtins (no library dependency).
+ * NetBSD is excluded: its pthread_once_t has no `state` member (the
+ * struct is `pto_mutex`/`pto_done`), and libpthread exports a working
+ * pthread_once(). */
+#if !defined(__NetBSD__)
 int pthread_once(pthread_once_t *once_control, void (*init_routine)(void)) {
         static volatile int g_once_lock = 0;
 
@@ -873,6 +996,7 @@ int pthread_once(pthread_once_t *once_control, void (*init_routine)(void)) {
         __sync_lock_release(&g_once_lock);
         return 0;
 }
+#endif /* !__NetBSD__ */
 
 /* pthread_setaffinity_np — set thread CPU affinity.
  * On FreeBSD we use cpuset_setaffinity(). For non-self threads
@@ -897,7 +1021,12 @@ int pthread_setaffinity_np(pthread_t thread, size_t cpusetsize,
 
 /* pthread_setname_np — set thread name.
  * FreeBSD provides pthread_set_name_np() in <pthread_np.h> but the cross
- * toolchain may not have it in libc. We use dlsym to call it if available. */
+ * toolchain may not have it in libc. We use dlsym to call it if available.
+ * NetBSD is excluded: its libc exports a three-argument pthread_setname_np(),
+ * so defining a two-argument one here would clash with the declaration in
+ * <pthread.h>; the two-argument call sites are routed to it through the macro
+ * in bsd/pthread.h instead. */
+#if !defined(__NetBSD__)
 int pthread_setname_np(pthread_t thread, const char *name) {
 #ifdef __FreeBSD__
         /* Look up pthread_set_name_np dynamically so we work with both
@@ -915,6 +1044,7 @@ int pthread_setname_np(pthread_t thread, const char *name) {
         return 0;
 #endif
 }
+#endif /* !__NetBSD__ */
 
 /* copy_tree_at_full — from copy.c (excluded on BSD). */
 int copy_tree_at_full(int fdf, const char *from, int fdt, const char *to,
