@@ -43,16 +43,19 @@
 #include "limits-util.h"
 #include "list.h"
 #include "log.h"
+#include "machine-tags.h"
 #include "mountpoint-util.h"
 #include "nulstr-util.h"
 #include "os-util.h"
 #include "parse-util.h"
+#include "path-lookup.h"
 #include "path-util.h"
 #include "percent-util.h"
 #include "pidref.h"
 #include "proc-cmdline.h"
 #include "process-util.h"
 #include "psi-util.h"
+#include "runtime-scope.h"
 #include "smack-util.h"
 #include "special.h"
 #include "stat-util.h"
@@ -108,7 +111,7 @@ Condition* condition_free_list_type(Condition *head, ConditionType type) {
         return head;
 }
 
-static int condition_test_kernel_command_line(Condition *c, char **env) {
+static int condition_test_kernel_command_line(Condition *c, char **env, RuntimeScope scope) {
         _cleanup_strv_free_ char **args = NULL;
         int r;
 
@@ -141,7 +144,8 @@ static int condition_test_kernel_command_line(Condition *c, char **env) {
         return false;
 }
 
-static int condition_test_credential(Condition *c, char **env) {
+static int condition_test_credential(Condition *c, char **env, RuntimeScope scope) {
+        _cleanup_strv_free_ char **dirs = NULL;
         int r;
 
         assert(c);
@@ -157,7 +161,6 @@ static int condition_test_credential(Condition *c, char **env) {
 
         int (*gd)(const char **ret);
         FOREACH_ARGUMENT(gd, get_credentials_dir, get_encrypted_credentials_dir) {
-                _cleanup_free_ char *j = NULL;
                 const char *cd;
 
                 r = gd(&cd);
@@ -166,20 +169,59 @@ static int condition_test_credential(Condition *c, char **env) {
                 if (r < 0)
                         return r;
 
-                j = path_join(cd, c->parameter);
+                r = strv_extend(&dirs, cd);
+                if (r < 0)
+                        return r;
+        }
+        size_t n_own_dirs = strv_length(dirs);
+
+        /* Service managers also search the credential stores, the same as ImportCredential= does */
+        if (IN_SET(scope, RUNTIME_SCOPE_SYSTEM, RUNTIME_SCOPE_USER)) {
+                _cleanup_strv_free_ char **plain = NULL, **encrypted = NULL;
+
+                r = credential_store_path(scope, &plain);
+                if (r < 0)
+                        return r;
+
+                r = credential_store_path_encrypted(scope, &encrypted);
+                if (r < 0)
+                        return r;
+
+                r = strv_extend_strv_consume(&dirs, TAKE_PTR(plain), /* filter_duplicates= */ false);
+                if (r < 0)
+                        return r;
+
+                r = strv_extend_strv_consume(&dirs, TAKE_PTR(encrypted), /* filter_duplicates= */ false);
+                if (r < 0)
+                        return r;
+        }
+
+        /* A broken directory must not hide a match in a later one, so only report errors if the credential
+         * was found nowhere. */
+        int ret = 0;
+        STRV_FOREACH(d, dirs) {
+                _cleanup_free_ char *j = NULL;
+
+                j = path_join(*d, c->parameter);
                 if (!j)
                         return -ENOMEM;
 
                 r = access_nofollow(j, F_OK);
                 if (r >= 0)
                         return true; /* yay! */
-                if (r != -ENOENT)
-                        return r;
+                if (r == -ENOENT)
+                        continue; /* not found in this dir */
 
-                /* not found in this dir */
+                /* Credential stores may be inaccessible to the caller, in particular the system ones are only
+                 * accessible to root. Unprivileged callers (e.g. systemd-sysupdate or systemd-analyze run as
+                 * user) just cannot see credentials in there, which is not an error. */
+                if ((size_t) (d - dirs) >= n_own_dirs && ERRNO_IS_NEG_PRIVILEGE(r))
+                        continue;
+
+                RET_GATHER(ret, r);
         }
 
-        return false;
+        return ret; /* error, or 0 for "not found" */
 }
 
 static int condition_test_version_cmp(const char *condition, const char *ver) {
@@ -193,7 +235,7 @@ static int condition_test_version_cmp(const char *condition, const char *ver) {
                 const char *s;
                 int r;
 
-                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                r = extract_first_word(&p, &word, /* separators= */ NULL, EXTRACT_UNQUOTE);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to parse condition string \"%s\": %m", p);
                 if (r == 0)
@@ -210,7 +252,7 @@ static int condition_test_version_cmp(const char *condition, const char *ver) {
                                 /* For backwards compatibility, allow whitespace between the operator and
                                  * value, without quoting, but only in the first expression. */
                                 word = mfree(word);
-                                r = extract_first_word(&p, &word, NULL, 0);
+                                r = extract_first_word(&p, &word, /* separators= */ NULL, /* flags= */ 0);
                                 if (r < 0)
                                         return log_debug_errno(r, "Failed to parse condition string \"%s\": %m", p);
                                 if (r == 0)
@@ -232,7 +274,7 @@ static int condition_test_version_cmp(const char *condition, const char *ver) {
         return true;
 }
 
-static int condition_test_version(Condition *c, char **env) {
+static int condition_test_version(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -266,7 +308,7 @@ static int condition_test_version(Condition *c, char **env) {
         return condition_test_version_cmp(p, u.release);
 }
 
-static int condition_test_osrelease(Condition *c, char **env) {
+static int condition_test_osrelease(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -277,7 +319,7 @@ static int condition_test_osrelease(Condition *c, char **env) {
                 CompareOperator operator;
                 const char *word;
 
-                r = extract_first_word(&parameter, &condition, NULL, EXTRACT_UNQUOTE);
+                r = extract_first_word(&parameter, &condition, /* separators= */ NULL, EXTRACT_UNQUOTE);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to parse parameter: %m");
                 if (r == 0)
@@ -315,7 +357,7 @@ static int condition_test_osrelease(Condition *c, char **env) {
         return true;
 }
 
-static int condition_test_machine_tag(Condition *c, char **env) {
+static int condition_test_machine_tag(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -346,7 +388,7 @@ static int condition_test_machine_tag(Condition *c, char **env) {
         return false;
 }
 
-static int condition_test_memory(Condition *c, char **env) {
+static int condition_test_memory(Condition *c, char **env, RuntimeScope scope) {
         CompareOperator operator;
         uint64_t m, k;
         const char *p;
@@ -359,7 +401,7 @@ static int condition_test_memory(Condition *c, char **env) {
         m = physical_memory();
 
         p = c->parameter;
-        operator = parse_compare_operator(&p, 0);
+        operator = parse_compare_operator(&p, /* flags= */ 0);
         if (operator < 0)
                 operator = COMPARE_GREATER_OR_EQUAL; /* default to >= check, if nothing is specified. */
 
@@ -370,7 +412,7 @@ static int condition_test_memory(Condition *c, char **env) {
         return test_order(CMP(m, k), operator);
 }
 
-static int condition_test_cpus(Condition *c, char **env) {
+static int condition_test_cpus(Condition *c, char **env, RuntimeScope scope) {
         CompareOperator operator;
         const char *p;
         unsigned k;
@@ -385,7 +427,7 @@ static int condition_test_cpus(Condition *c, char **env) {
                 return log_debug_errno(n, "Failed to determine CPUs in affinity mask: %m");
 
         p = c->parameter;
-        operator = parse_compare_operator(&p, 0);
+        operator = parse_compare_operator(&p, /* flags= */ 0);
         if (operator < 0)
                 operator = COMPARE_GREATER_OR_EQUAL; /* default to >= check, if nothing is specified. */
 
@@ -396,7 +438,7 @@ static int condition_test_cpus(Condition *c, char **env) {
         return test_order(CMP((unsigned) n, k), operator);
 }
 
-static int condition_test_user(Condition *c, char **env) {
+static int condition_test_user(Condition *c, char **env, RuntimeScope scope) {
         uid_t id;
         int r;
 
@@ -428,14 +470,14 @@ static int condition_test_user(Condition *c, char **env) {
         if (streq(username, c->parameter))
                 return 1;
 
-        r = get_user_creds(c->parameter, USER_CREDS_ALLOW_MISSING, NULL, &id, NULL, NULL, NULL);
+        r = get_user_creds(c->parameter, USER_CREDS_ALLOW_MISSING, /* ret_username= */ NULL, &id, /* ret_gid= */ NULL, /* ret_home= */ NULL, /* ret_shell= */ NULL);
         if (r < 0)
                 return 0;
 
         return id == getuid() || id == geteuid();
 }
 
-static int condition_test_control_group_controller(Condition *c, char **env) {
+static int condition_test_control_group_controller(Condition *c, char **env, RuntimeScope scope) {
         CGroupMask system_mask, wanted_mask;
         int r;
 
@@ -464,7 +506,7 @@ static int condition_test_control_group_controller(Condition *c, char **env) {
         return FLAGS_SET(system_mask, wanted_mask);
 }
 
-static int condition_test_group(Condition *c, char **env) {
+static int condition_test_group(Condition *c, char **env, RuntimeScope scope) {
         gid_t id;
         int r;
 
@@ -483,7 +525,7 @@ static int condition_test_group(Condition *c, char **env) {
         return in_group(c->parameter) > 0;
 }
 
-static int condition_test_virtualization(Condition *c, char **env) {
+static int condition_test_virtualization(Condition *c, char **env, RuntimeScope scope) {
         Virtualization v;
         int b;
 
@@ -534,7 +576,7 @@ static int condition_test_architecture_parameter(const char *parameter) {
         return a == b;
 }
 
-static int condition_test_architecture(Condition *c, char **env) {
+static int condition_test_architecture(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_ARCHITECTURE);
@@ -600,7 +642,7 @@ static int condition_test_firmware_smbios_field(const char *expression) {
                 return operator;
 
         /* Parse expected value */
-        r = extract_first_word(&expression, &expected_value, NULL, EXTRACT_UNQUOTE);
+        r = extract_first_word(&expression, &expected_value, /* separators= */ NULL, EXTRACT_UNQUOTE);
         if (r < 0)
                 return r;
         if (r == 0 || !isempty(expression))
@@ -611,7 +653,7 @@ static int condition_test_firmware_smbios_field(const char *expression) {
                 return log_debug_errno(SYNTHETIC_ERRNO(EINVAL), "Invalid SMBIOS field name.");
 
         const char *p = strjoina("/sys/class/dmi/id/", field);
-        r = read_virtual_file(p, SIZE_MAX, &actual_value, NULL);
+        r = read_virtual_file(p, SIZE_MAX, &actual_value, /* ret_size= */ NULL);
         if (r < 0) {
                 log_debug_errno(r, "Failed to read %s: %m", p);
                 if (r == -ENOENT)
@@ -626,7 +668,7 @@ static int condition_test_firmware_smbios_field(const char *expression) {
         return version_or_fnmatch_compare(operator, actual_value, expected_value);
 }
 
-static int condition_test_firmware(Condition *c, char **env) {
+static int condition_test_firmware(Condition *c, char **env, RuntimeScope scope) {
         sd_char *arg;
         int r;
 
@@ -680,7 +722,7 @@ static int condition_test_firmware(Condition *c, char **env) {
         }
 }
 
-static int condition_test_host(Condition *c, char **env) {
+static int condition_test_host(Condition *c, char **env, RuntimeScope scope) {
         _cleanup_free_ char *h = NULL;
         int r;
 
@@ -740,7 +782,7 @@ static uint32_t condition_fraction_value(sd_id128_t machine_id, const char *text
         return unaligned_read_le32(res);
 }
 
-static int condition_test_fraction(Condition *c, char **env) {
+static int condition_test_fraction(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -803,7 +845,7 @@ static int condition_test_fraction(Condition *c, char **env) {
         return condition_fraction_value(mid, text) < UINT32_SCALE_FROM_PERMYRIAD(permyriad);
 }
 
-static int condition_test_ac_power(Condition *c, char **env) {
+static int condition_test_ac_power(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -817,7 +859,7 @@ static int condition_test_ac_power(Condition *c, char **env) {
         return (on_ac_power() != 0) == !!r;
 }
 
-static int condition_test_security(Condition *c, char **env) {
+static int condition_test_security(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_SECURITY);
@@ -842,7 +884,7 @@ static int condition_test_security(Condition *c, char **env) {
         return false;
 }
 
-static int condition_test_capability(Condition *c, char **env) {
+static int condition_test_capability(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -862,7 +904,7 @@ static int condition_test_capability(Condition *c, char **env) {
         return BIT_SET(q.bounding, value);
 }
 
-static int condition_test_needs_update(Condition *c, char **env) {
+static int condition_test_needs_update(Condition *c, char **env, RuntimeScope scope) {
         struct stat usr, other;
         const char *p;
         bool b;
@@ -948,7 +990,7 @@ static int condition_test_needs_update(Condition *c, char **env) {
         return timespec_load_nsec(&usr.st_mtim) > timestamp;
 }
 
-static int condition_test_first_boot(Condition *c, char **env) {
+static int condition_test_first_boot(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -965,7 +1007,7 @@ static int condition_test_first_boot(Condition *c, char **env) {
         return (in_first_boot() > 0) == r;
 }
 
-static int condition_test_environment(Condition *c, char **env) {
+static int condition_test_environment(Condition *c, char **env, RuntimeScope scope) {
         bool equal;
 
         assert(c);
@@ -993,7 +1035,7 @@ static int condition_test_environment(Condition *c, char **env) {
         return false;
 }
 
-static int condition_test_path_exists(Condition *c, char **env) {
+static int condition_test_path_exists(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_PATH_EXISTS);
@@ -1001,7 +1043,7 @@ static int condition_test_path_exists(Condition *c, char **env) {
         return access(c->parameter, F_OK) >= 0;
 }
 
-static int condition_test_path_exists_glob(Condition *c, char **env) {
+static int condition_test_path_exists_glob(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_PATH_EXISTS_GLOB);
@@ -1009,15 +1051,15 @@ static int condition_test_path_exists_glob(Condition *c, char **env) {
         return glob_exists(c->parameter) > 0;
 }
 
-static int condition_test_path_is_directory(Condition *c, char **env) {
+static int condition_test_path_is_directory(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_PATH_IS_DIRECTORY);
 
-        return is_dir(c->parameter, true) > 0;
+        return is_dir(c->parameter, /* follow= */ true) > 0;
 }
 
-static int condition_test_path_is_symbolic_link(Condition *c, char **env) {
+static int condition_test_path_is_symbolic_link(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_PATH_IS_SYMBOLIC_LINK);
@@ -1025,7 +1067,7 @@ static int condition_test_path_is_symbolic_link(Condition *c, char **env) {
         return is_symlink(c->parameter) > 0;
 }
 
-static int condition_test_path_is_mount_point(Condition *c, char **env) {
+static int condition_test_path_is_mount_point(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_PATH_IS_MOUNT_POINT);
@@ -1033,7 +1075,7 @@ static int condition_test_path_is_mount_point(Condition *c, char **env) {
         return path_is_mount_point_full(c->parameter, /* root= */ NULL, AT_SYMLINK_FOLLOW) > 0;
 }
 
-static int condition_test_path_is_read_write(Condition *c, char **env) {
+static int condition_test_path_is_read_write(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -1045,7 +1087,7 @@ static int condition_test_path_is_read_write(Condition *c, char **env) {
         return r <= 0 && r != -ENOENT;
 }
 
-static int condition_test_cpufeature(Condition *c, char **env) {
+static int condition_test_cpufeature(Condition *c, char **env, RuntimeScope scope) {
         _cleanup_free_ char *cpu_arch = NULL, *feature = NULL;
         int r;
 
@@ -1068,7 +1110,7 @@ static int condition_test_cpufeature(Condition *c, char **env) {
         return has_cpu_with_flag(ascii_strlower(feature));
 }
 
-static int condition_test_path_is_encrypted(Condition *c, char **env) {
+static int condition_test_path_is_encrypted(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -1082,7 +1124,7 @@ static int condition_test_path_is_encrypted(Condition *c, char **env) {
         return r > 0;
 }
 
-static int condition_test_path_is_socket(Condition *c, char **env) {
+static int condition_test_path_is_socket(Condition *c, char **env, RuntimeScope scope) {
         assert(c);
         assert(c->parameter);
         assert(c->type == CONDITION_PATH_IS_SOCKET);
@@ -1090,7 +1132,7 @@ static int condition_test_path_is_socket(Condition *c, char **env) {
         return is_socket(c->parameter) > 0;
 }
 
-static int condition_test_directory_not_empty(Condition *c, char **env) {
+static int condition_test_directory_not_empty(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -1101,7 +1143,7 @@ static int condition_test_directory_not_empty(Condition *c, char **env) {
         return r <= 0 && !IN_SET(r, -ENOENT, -ENOTDIR);
 }
 
-static int condition_test_file_not_empty(Condition *c, char **env) {
+static int condition_test_file_not_empty(Condition *c, char **env, RuntimeScope scope) {
         struct stat st;
 
         assert(c);
@@ -1113,7 +1155,7 @@ static int condition_test_file_not_empty(Condition *c, char **env) {
                 st.st_size > 0);
 }
 
-static int condition_test_file_is_executable(Condition *c, char **env) {
+static int condition_test_file_is_executable(Condition *c, char **env, RuntimeScope scope) {
         struct stat st;
 
         assert(c);
@@ -1125,7 +1167,7 @@ static int condition_test_file_is_executable(Condition *c, char **env) {
                 (st.st_mode & 0111));
 }
 
-static int condition_test_psi(Condition *c, char **env) {
+static int condition_test_psi(Condition *c, char **env, RuntimeScope scope) {
         _cleanup_free_ char *first = NULL, *second = NULL, *third = NULL, *fourth = NULL, *pressure_path = NULL;
         const char *p, *value, *pressure_type;
         loadavg_t *current, limit;
@@ -1226,7 +1268,7 @@ static int condition_test_psi(Condition *c, char **env) {
         else {
                 const char *timespan;
 
-                timespan = skip_leading_chars(fourth, NULL);
+                timespan = skip_leading_chars(fourth, /* bad= */ NULL);
                 if (!timespan)
                         return log_debug_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to parse condition parameter %s.", c->parameter);
 
@@ -1268,7 +1310,7 @@ static int condition_test_psi(Condition *c, char **env) {
         return *current <= limit;
 }
 
-static int condition_test_kernel_module_loaded(Condition *c, char **env) {
+static int condition_test_kernel_module_loaded(Condition *c, char **env, RuntimeScope scope) {
         int r;
 
         assert(c);
@@ -1291,18 +1333,18 @@ static int condition_test_kernel_module_loaded(Condition *c, char **env) {
         if (!p)
                 return log_oom_debug();
 
-        _cleanup_close_ int dir_fd = open(p, O_PATH|O_DIRECTORY|O_CLOEXEC);
+        _cleanup_close_ int dir_fd = xopenat(AT_FDCWD, p, O_PATH|O_DIRECTORY);
         if (dir_fd < 0) {
-                if (errno == ENOENT) {
-                        log_debug_errno(errno, "'%s/' does not exist, kernel module '%s' not loaded.", p, normalized);
+                if (dir_fd == -ENOENT) {
+                        log_debug_errno(dir_fd, "'%s/' does not exist, kernel module '%s' not loaded.", p, normalized);
                         return false;
                 }
 
-                return log_debug_errno(errno, "Failed to open directory '%s/': %m", p);
+                return log_debug_errno(dir_fd, "Failed to open directory '%s/': %m", p);
         }
 
         _cleanup_free_ char *initstate = NULL;
-        r = read_virtual_file_at(dir_fd, "initstate", SIZE_MAX, &initstate, NULL);
+        r = read_virtual_file_at(dir_fd, "initstate", SIZE_MAX, &initstate, /* ret_size= */ NULL);
         if (r == -ENOENT) {
                 log_debug_errno(r, "'%s/' exists but '%s/initstate' does not, kernel module '%s' is built-in, hence loaded.", p, p, normalized);
                 return true;
@@ -1321,9 +1363,9 @@ static int condition_test_kernel_module_loaded(Condition *c, char **env) {
         return true;
 }
 
-typedef int (*condition_test_func_t)(Condition *c, char **env);
+typedef int (*condition_test_func_t)(Condition *c, char **env, RuntimeScope scope);
 
-static int condition_test_impl(Condition *c, char **env, const condition_test_func_t table[]) {
+static int condition_test_impl(Condition *c, char **env, RuntimeScope scope, const condition_test_func_t table[]) {
         int r, b;
 
         assert(c);
@@ -1332,7 +1374,7 @@ static int condition_test_impl(Condition *c, char **env, const condition_test_fu
         assert(table);
         assert(table[c->type]);
 
-        r = table[c->type](c, env);
+        r = table[c->type](c, env, scope);
         if (r < 0) {
                 c->result = CONDITION_ERROR;
                 return r;
@@ -1343,7 +1385,7 @@ static int condition_test_impl(Condition *c, char **env, const condition_test_fu
         return b;
 }
 
-static int condition_test_net(Condition *c, char **env) {
+static int condition_test_net(Condition *c, char **env, RuntimeScope scope) {
         static const condition_test_func_t table_net[_CONDITION_TYPE_MAX] = {
                 [CONDITION_KERNEL_COMMAND_LINE]      = condition_test_kernel_command_line,
                 [CONDITION_VERSION]                  = condition_test_version,
@@ -1355,10 +1397,10 @@ static int condition_test_net(Condition *c, char **env) {
                 [CONDITION_MACHINE_TAG]              = condition_test_machine_tag,
         };
 
-        return condition_test_impl(c, env, table_net);
+        return condition_test_impl(c, env, scope, table_net);
 }
 
-int condition_test(Condition *c, char **env) {
+int condition_test(Condition *c, char **env, RuntimeScope scope) {
         static const condition_test_func_t table[_CONDITION_TYPE_MAX] = {
                 [CONDITION_PATH_EXISTS]              = condition_test_path_exists,
                 [CONDITION_PATH_EXISTS_GLOB]         = condition_test_path_exists_glob,
@@ -1399,12 +1441,13 @@ int condition_test(Condition *c, char **env) {
                 [CONDITION_KERNEL_MODULE_LOADED]     = condition_test_kernel_module_loaded,
         };
 
-        return condition_test_impl(c, env, table);
+        return condition_test_impl(c, env, scope, table);
 }
 
 static int condition_test_list_impl(
                 Condition *first,
                 char **env,
+                RuntimeScope scope,
                 condition_to_string_t to_string,
                 condition_test_logger_t logger,
                 condition_test_func_t tester,
@@ -1425,7 +1468,7 @@ static int condition_test_list_impl(
 
                 has_trigger = has_trigger || c->trigger;
 
-                r = tester(c, env);
+                r = tester(c, env, scope);
 
                 if (logger) {
                         if (r < 0)
@@ -1474,17 +1517,19 @@ bool condition_test_list_net(
                 condition_test_logger_t logger,
                 void *userdata) {
 
-        return condition_test_list_impl(first, env, to_string, logger, condition_test_net, userdata) > 0;
+        /* networkd and udevd are not service managers, they have no runtime scope */
+        return condition_test_list_impl(first, env, _RUNTIME_SCOPE_INVALID, to_string, logger, condition_test_net, userdata) > 0;
 }
 
 int condition_test_list(
                 Condition *first,
                 char **env,
+                RuntimeScope scope,
                 condition_to_string_t to_string,
                 condition_test_logger_t logger,
                 void *userdata) {
 
-        return condition_test_list_impl(first, env, to_string, logger, condition_test, userdata);
+        return condition_test_list_impl(first, env, scope, to_string, logger, condition_test, userdata);
 }
 
 void condition_dump(Condition *c, FILE *f, const char *prefix, condition_to_string_t to_string) {

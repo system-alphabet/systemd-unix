@@ -35,6 +35,8 @@ body:
         - 'systemd-binfmt'
         - 'systemd-cgtop'
         - 'systemd-coredump'
+        - 'systemd-creds'
+        - 'systemd-cryptenroll'
         - 'systemd-cryptsetup'
         - 'systemd-delta'
         - 'systemd-dissect'

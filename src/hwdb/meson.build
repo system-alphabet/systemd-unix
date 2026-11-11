@@ -3,7 +3,6 @@
 executables += [
         executable_template + {
                 'name' : 'systemd-hwdb',
-                'public' : true,
                 'conditions' : ['ENABLE_HWDB'],
                 'sources' : files('hwdb.c'),
                 #'link_with' : udev_link_with,

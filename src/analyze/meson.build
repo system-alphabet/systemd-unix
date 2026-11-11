@@ -18,10 +18,12 @@ systemd_analyze_sources = files(
         'analyze-filesystems.c',
         'analyze-image-policy.c',
         'analyze-inspect-elf.c',
+        'analyze-io-uring-filter.c',
         'analyze-log-control.c',
         'analyze-malloc.c',
         'analyze-pcrs.c',
         'analyze-plot.c',
+        'analyze-restart-delays.c',
         'analyze-service-watchdogs.c',
         'analyze-smbios11.c',
         'analyze-syscall-filter.c',
@@ -39,7 +41,6 @@ systemd_analyze_sources = files(
 executables += [
         executable_template + {
                 'name' : 'systemd-analyze',
-                'public' : conf.get('ENABLE_ANALYZE') == 1,
                 'sources' : systemd_analyze_sources,
                 'link_with' : [
                         libshared,

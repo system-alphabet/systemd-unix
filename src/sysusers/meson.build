@@ -7,7 +7,6 @@ endif
 executables += [
         executable_template + {
                 'name' : 'systemd-sysusers',
-                'public' : true,
                 'export' : files('sysusers.c'),
                 'dependencies' : libaudit_cflags,
                 'install' : have_standalone_binaries ? 'both' : 'yes',

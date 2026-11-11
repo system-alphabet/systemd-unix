@@ -26,13 +26,14 @@ test_env = {
 generate_sym_test_py = files('generate-sym-test.py')
 
 test_libsystemd_sym_c = custom_target(
-        input : [libsystemd_sym_path,
+        input : [libsystemd_sym,
                  systemd_headers,
                  libsystemd_sources],
         output : 'test-libsystemd-sym.c',
-        command : [generate_sym_test_py,
-                   libsystemd_sym_path,
-                   libsystemd_dir_path,
+        command : [python,
+                   generate_sym_test_py,
+                   '@INPUT0@',
+                   relative_source_path / 'src/libsystemd',
                    systemd_headers],
         capture : true,
         build_by_default : want_tests != 'false')

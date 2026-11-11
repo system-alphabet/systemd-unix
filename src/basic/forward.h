@@ -38,6 +38,7 @@ struct icmp6_hdr;
 struct in_addr;
 struct in6_addr;
 struct inotify_event;
+struct io_uring_sqe;
 struct iovec;
 struct mount_attr;
 struct msghdr;
@@ -132,6 +133,7 @@ typedef enum UnitDependency UnitDependency;
 typedef enum UnitNameMangle UnitNameMangle;
 typedef enum UnitType UnitType;
 typedef enum WaitFlags WaitFlags;
+typedef enum XOpenFlags XOpenFlags;
 
 typedef struct Fiber Fiber;
 typedef struct FiberOps FiberOps;
