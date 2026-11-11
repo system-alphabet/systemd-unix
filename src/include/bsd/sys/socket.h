@@ -42,6 +42,9 @@ struct ucred {
 #ifndef SO_PEERPIDFD
 #define SO_PEERPIDFD 77
 #endif
+#ifndef SO_PEERPIDFD_THREAD
+#define SO_PEERPIDFD_THREAD 87
+#endif
 #ifndef SO_BINDTODEVICE
 #define SO_BINDTODEVICE 25
 #endif

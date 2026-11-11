@@ -34,7 +34,6 @@
 #include "analyze-malloc.h"
 #include "analyze-pcrs.h"
 #include "analyze-plot.h"
-#include "analyze-restart-delays.h"
 #include "analyze-service-watchdogs.h"
 #include "analyze-smbios11.h"
 #include "analyze-syscall-filter.h"
@@ -266,8 +265,6 @@ VERB_SCOPE(, verb_timespan, "timespan", "SPAN...\0", 2, VERB_ANY, 0,
 VERB_GROUP("Unit & Service Analysis");
 VERB_SCOPE(, verb_fdstore, "fdstore", "SERVICE...\0", 2, VERB_ANY, 0,
            "Show file descriptor store contents of service");
-VERB_SCOPE(, verb_restart_delays, "restart-delays", "SERVICE...\0", 2, VERB_ANY, 0,
-           "Show restart delays and start limit of service");
 VERB_SCOPE(, verb_malloc, "malloc", "[D-BUS SERVICE...]\0", VERB_ANY, VERB_ANY, 0,
            "Dump malloc stats of a D-Bus service");
 VERB_SCOPE(, verb_unit_gdb, "unit-gdb", "SERVICE\0", 2, VERB_ANY, 0,
@@ -541,9 +538,9 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
         if (!args || strv_prepend(&args, verb) < 0)                                 /* args is now [arg0, arg1, arg2, …] */
                 return log_oom();
 
-        if (arg_offline && !STRPTR_IN_SET(verb, "security", "restart-delays"))
+        if (arg_offline && !streq_ptr(verb, "security"))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "Option --offline= is only supported for security and restart-delays right now.");
+                                       "Option --offline= is only supported for security right now.");
 
         if (arg_offline && strv_length(args) < 2)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
@@ -553,9 +550,9 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
             !STRPTR_IN_SET(verb,
                            "security", "inspect-elf", "dlopen-metadata", "plot", "fdstore", "pcrs", "nvpcrs",
                            "architectures", "cpu-features", "capability", "exit-status", "chid", "blame",
-                           "identify-tpm2", "restart-delays", "io-uring-filter"))
+                           "identify-tpm2", "io-uring-filter"))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "Option --json= is only supported for security, inspect-elf, dlopen-metadata, plot, fdstore, pcrs, nvpcrs, architectures, cpu-features, capability, exit-status, chid, blame, identify-tpm2, restart-delays, io-uring-filter right now.");
+                                       "Option --json= is only supported for security, inspect-elf, dlopen-metadata, plot, fdstore, pcrs, nvpcrs, architectures, cpu-features, capability, exit-status, chid, blame, identify-tpm2, io-uring-filter right now.");
 
         if (arg_threshold != 100 && !streq_ptr(verb, "security"))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
@@ -575,9 +572,9 @@ static int parse_argv(int argc, char *argv[], char ***ret_args) {
 
         if ((arg_root || arg_image) &&
             !STRPTR_IN_SET(verb, "cat-config", "verify", "condition", "inspect-elf", "unit-gdb") &&
-            (!(STRPTR_IN_SET(verb, "security", "restart-delays") && arg_offline)))
+            (!(streq_ptr(verb, "security") && arg_offline)))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "Options --root= and --image= are only supported for cat-config, verify, condition, unit-gdb, and for security and restart-delays with --offline= right now.");
+                                       "Options --root= and --image= are only supported for cat-config, verify, condition, unit-gdb, and security when used with --offline= right now.");
 
         /* Having both an image and a root is not supported by the code */
         if (arg_root && arg_image)

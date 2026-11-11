@@ -70,3 +70,7 @@ struct sock_fprog {
         unsigned short          len;
         struct sock_filter     *filter;
 };
+
+/* Instruction construction helpers (same as the kernel UAPI <linux/filter.h>). */
+#define BPF_STMT(code, k) { (unsigned short)(code), 0, 0, k }
+#define BPF_JUMP(code, k, jt, jf) { (unsigned short)(code), jt, jf, k }

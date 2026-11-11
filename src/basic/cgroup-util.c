@@ -2032,6 +2032,48 @@ DEFINE_STRING_TABLE_LOOKUP(managed_oom_preference, ManagedOOMPreference);
 
 #else  /* !ENABLE_CGROUP */
 
+int cg_pid_get_unit_path(pid_t pid, char **ret_path) {
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_unit_path(const PidRef *pidref, char **ret_path) {
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_pid_get_user_unit_path(pid_t pid, char **ret_path) {
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_user_unit_path(const PidRef *pidref, char **ret_path) {
+        if (ret_path)
+                *ret_path = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_machine_name(const PidRef *pidref, char **ret_machine) {
+        if (ret_machine)
+                *ret_machine = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_slice(const PidRef *pidref, char **ret_slice) {
+        if (ret_slice)
+                *ret_slice = NULL;
+        return -ENODATA;
+}
+
+int cg_pidref_get_user_slice(const PidRef *pidref, char **ret_slice) {
+        if (ret_slice)
+                *ret_slice = NULL;
+        return -ENODATA;
+}
+
 const uint64_t cgroup_io_limit_defaults[_CGROUP_IO_LIMIT_TYPE_MAX] = {
         [CGROUP_IO_RBPS_MAX]  = CGROUP_LIMIT_MAX,
         [CGROUP_IO_WBPS_MAX]  = CGROUP_LIMIT_MAX,
@@ -2372,6 +2414,29 @@ int cg_pid_get_path_shifted(pid_t pid, const char *root, char **ret_cgroup) {
         return strdup_to(ret_cgroup, c);
 }
 
+int cg_pidref_get_path_shifted(const PidRef *pidref, const char *cached_root, char **ret_cgroup) {
+        _cleanup_free_ char *raw = NULL;
+        const char *c;
+        int r;
+
+        assert(ret_cgroup);
+
+        r = cg_pidref_get_path(pidref, &raw);
+        if (r < 0)
+                return r;
+
+        r = cg_shift_path(raw, cached_root, &c);
+        if (r < 0)
+                return r;
+
+        if (c == raw) {
+                *ret_cgroup = TAKE_PTR(raw);
+                return 0;
+        }
+
+        return strdup_to(ret_cgroup, c);
+}
+
 static bool valid_slice_name(const char *p, size_t n) {
         assert(p || n == 0);
 
@@ -2585,6 +2650,51 @@ static const char* skip_user_prefix(const char *path) {
                 return t;
 
         return skip_session(e);
+}
+
+static const char* skip_unit(const char *cgroup) {
+        assert(cgroup);
+
+        size_t n = strcspn(cgroup, "/");
+        if (n < 3)
+                return NULL;
+
+        char *c = strndupa_safe(cgroup, n);
+        c = cg_unescape(c);
+
+        if (!unit_name_is_valid(c, UNIT_NAME_PLAIN|UNIT_NAME_INSTANCE))
+                return NULL;
+
+        return cgroup + n;
+}
+
+static const char* skip_unit_path(const char *cgroup) {
+        const char *end = skip_slices(cgroup);
+        return skip_unit(end);
+}
+
+static const char* skip_user_unit_path(const char *cgroup) {
+        const char *end = skip_user_prefix(cgroup);
+        if (!end)
+                return NULL;
+
+        return skip_unit_path(end);
+}
+
+int cg_path_get_user_unit_path(const char *path, char **ret_path) {
+        assert(path);
+        assert(ret_path);
+
+        const char *end = skip_user_unit_path(path);
+        if (!end)
+                return -ENXIO;
+
+        _cleanup_free_ char *unit_path = strndup(path, end - path);
+        if (!unit_path)
+                return -ENOMEM;
+
+        *ret_path = TAKE_PTR(unit_path);
+        return 0;
 }
 
 int cg_path_get_user_unit_full(const char *path, char **ret_unit, char **ret_subgroup) {

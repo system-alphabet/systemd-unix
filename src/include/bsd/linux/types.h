@@ -28,6 +28,14 @@ typedef int16_t  __s16;
 typedef int32_t  __s32;
 typedef int64_t  __s64;
 
+/* Big-endian integer types (from <linux/types.h>). */
+typedef uint16_t __be16;
+typedef uint32_t __be32;
+typedef uint64_t __be64;
+
+/* 64-bit type that is aligned to 8 bytes (from <asm-generic/int-ll64.h>). */
+typedef __u64 __aligned_u64 __attribute__((aligned(8)));
+
 /* Little-endian types used by kernel headers */
 typedef uint32_t le32_t;
 

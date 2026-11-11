@@ -95,6 +95,9 @@ int copy_bytes_full(int fdf, int fdt, uint64_t max_bytes, unsigned int copy_flag
                     void **ret_remains, size_t *ret_remains_size,
                     void *progress, void *userdata);
 void *dissected_image_unref(void *m);
+int dissect_image_file_and_warn(const char *path, const void *verity, const void *mount_options,
+                                const void *image_policy, const void *image_filter,
+                                unsigned int flags, void **ret);
 int dissect_loop_device_and_warn(void *loop, const void *verity, const void *mount_options,
                                  const void *image_policy, const void *image_filter,
                                  unsigned int flags, void **ret);
@@ -106,10 +109,15 @@ int dissected_image_mount(void *m, const char *where, uid_t uid_shift, uid_t uid
 int dissected_image_guess_verity_roothash(void *m, void *verity);
 int dissected_image_load_verity_sig_partition(void *m, int fd, void *verity);
 int dissected_image_relinquish(void *m);
-int mount_image_privately_interactively(const char *image, const void *image_policy,
-                                        unsigned int flags, char **ret_directory,
-                                        int *ret_dir_fd, void **ret_loop_device);
+int mount_image_privately_full(const char *image, const void *image_policy,
+                               unsigned int flags, const char *passphrase,
+                               unsigned int ask_password_flags,
+                               char **ret_directory,
+                               int *ret_dir_fd, void **ret_loop_device);
 void verity_settings_done(void *verity);
+int verity_settings_copy(void *dest, const void *source);
+int mkdir_foreign_at_full(int parent_fd, const char *name, unsigned int mode,
+                          unsigned int xopen_flags, int *ret_directory_fd);
 int mountfsd_connect(void **ret);
 int mountfsd_mount_image_fd(void *vl, int image_fd, int userns_fd,
                             const void *options, const void *image_policy,
@@ -1385,6 +1393,13 @@ void *dissected_image_unref(void *m) {
         (void)m;
         return NULL;
 }
+int dissect_image_file_and_warn(const char *path, const void *verity, const void *mount_options,
+                                const void *image_policy, const void *image_filter,
+                                unsigned int flags, void **ret) {
+        (void)path; (void)verity; (void)mount_options; (void)image_policy;
+        (void)image_filter; (void)flags; (void)ret;
+        return -ENOSYS;
+}
 int dissect_loop_device_and_warn(void *loop, const void *verity, const void *mount_options,
                                  const void *image_policy, const void *image_filter,
                                  unsigned int flags, void **ret) {
@@ -1416,17 +1431,34 @@ int dissected_image_relinquish(void *m) {
         return -ENOSYS;
 }
 
-/* mount_image_privately_interactively — from dissect-image.c (excluded on BSD) */
-int mount_image_privately_interactively(const char *image, const void *image_policy,
-                                        unsigned int flags, char **ret_directory,
-                                        int *ret_dir_fd, void **ret_loop_device) {
-        (void)image; (void)image_policy; (void)flags;
+/* mount_image_privately_full — from dissect-image.c (excluded on BSD);
+ * mount_image_privately_interactively() is now a static inline wrapper around this. */
+int mount_image_privately_full(const char *image, const void *image_policy,
+                               unsigned int flags, const char *passphrase,
+                               unsigned int ask_password_flags,
+                               char **ret_directory,
+                               int *ret_dir_fd, void **ret_loop_device) {
+        (void)image; (void)image_policy; (void)flags; (void)passphrase;
+        (void)ask_password_flags;
         (void)ret_directory; (void)ret_dir_fd; (void)ret_loop_device;
         return -ENOSYS;
 }
 
 void verity_settings_done(void *verity) {
         (void)verity;
+}
+
+/* verity_settings_copy — from dissect-image.c (excluded on BSD) */
+int verity_settings_copy(void *dest, const void *source) {
+        (void)dest; (void)source;
+        return -ENOSYS;
+}
+
+/* mkdir_foreign_at_full — from dissect-image.c (excluded on BSD) */
+int mkdir_foreign_at_full(int parent_fd, const char *name, unsigned int mode,
+                          unsigned int xopen_flags, int *ret_directory_fd) {
+        (void)parent_fd; (void)name; (void)mode; (void)xopen_flags; (void)ret_directory_fd;
+        return -ENOSYS;
 }
 
 /* mountfsd stubs */

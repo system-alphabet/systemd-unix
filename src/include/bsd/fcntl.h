@@ -131,6 +131,11 @@ int fallocate(int fd, int mode, off_t offset, off_t len);
 #endif
 
 /* Linux-specific O_* flags */
+#ifndef O_EMPTYPATH
+/* Reopen an fd by passing an empty path (Linux 7.2+). FreeBSD has no such flag, and the kernel
+ * rejects unknown flags, so this degrades to the /proc/self/fd fallback in the caller. */
+#define O_EMPTYPATH 0
+#endif
 #ifndef O_DIRECT
 #define O_DIRECT 040000
 #endif
@@ -177,6 +182,11 @@ int open_by_handle_at(int mount_fd, struct file_handle *handle, int flags);
 #endif
 
 /* Linux pipe buffer size fcntl operations */
+#ifndef F_CREATED_QUERY
+/* Linux 6.12+ command asking whether an O_CREAT open created the file. FreeBSD's fcntl() rejects it
+ * with EINVAL, which the caller treats as "the file existed already". */
+#define F_CREATED_QUERY (1024 + 4)
+#endif
 #ifndef F_GETPIPE_SZ
 #define F_GETPIPE_SZ 1032
 #endif

@@ -49,6 +49,7 @@ basic_sources = files(
         'in-addr-util.c',
         'initrd-util.c',
         'inotify-util.c',
+        'io-uring-util.c',
         'io-util.c',
         'iovec-util.c',
         'iovec-wrapper.c',
@@ -115,6 +116,7 @@ basic_sources = files(
         'user-util.c',
         'utf8.c',
         'virt.c',
+        'web-util.c',
         'xattr-util.c',
 )
 

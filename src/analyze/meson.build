@@ -23,7 +23,6 @@ systemd_analyze_sources = files(
         'analyze-malloc.c',
         'analyze-pcrs.c',
         'analyze-plot.c',
-        'analyze-restart-delays.c',
         'analyze-service-watchdogs.c',
         'analyze-smbios11.c',
         'analyze-syscall-filter.c',

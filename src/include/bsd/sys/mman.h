@@ -21,6 +21,10 @@ int memfd_create(const char *name, unsigned int flags);
 #ifndef MAP_NORESERVE
 #define MAP_NORESERVE   0
 #endif
+#ifndef MAP_POPULATE
+/* Pre-fault the mapping on Linux; FreeBSD has no equivalent, and an unknown flag would be rejected. */
+#define MAP_POPULATE    0
+#endif
 
 /* mincore() takes a char * vector on FreeBSD and NetBSD, unsigned char * on Linux. */
 #if defined(__FreeBSD__) || defined(__NetBSD__)
