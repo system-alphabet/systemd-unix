@@ -21,7 +21,9 @@
 #include "constants.h"
 #include "copy.h"
 #include "crypto-util.h"
+#if HAVE_TPM2
 #include "cryptsetup-tpm2.h"
+#endif
 #include "cryptsetup-util.h"
 #include "device-private.h"
 #include "devnum-util.h"
@@ -3394,6 +3396,7 @@ static int decrypt_partition(
                         return r == -EPERM ? -EKEYREJECTED : r;
                 }
         } else {
+#if HAVE_TPM2
                 /* No passphrase, but TPM2 unlocking was requested (see check above): see if a TPM2 token
                  * enrolled in the LUKS2 header (e.g. via "systemd-cryptenroll --tpm2-device=…") unseals
                  * against the local TPM2. If not — no TPM2, no token, policy mismatch — this fails with
@@ -3418,6 +3421,12 @@ static int decrypt_partition(
                 }
                 if (r < 0)
                         return log_debug_errno(r, "Failed to activate LUKS device with TPM2-unsealed secret: %m");
+#else
+                /* TPM2 support was removed from this fork, hence without a passphrase we cannot unlock
+                 * anything. Return -ENOKEY like the TPM2 path above would when no token matches. */
+                return log_debug_errno(SYNTHETIC_ERRNO(ENOKEY),
+                                       "No passphrase supplied and TPM2 support is disabled, cannot unlock LUKS device.");
+#endif
         }
 
         fd = xopenat(AT_FDCWD, node, O_RDONLY|O_NONBLOCK|O_NOCTTY);
