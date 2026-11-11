@@ -48,7 +48,17 @@ static inline double strtod_l(const char *nptr, char **endptr, locale_t loc) {
 #include <sys/param.h> /* for __NetBSD_Prereq__() */
 #endif
 
-#if defined(__OpenBSD__) || (defined(__NetBSD__) && !__NetBSD_Prereq__(11, 0, 0))
+/* __NetBSD_Prereq__() only exists on NetBSD, so it must not be referenced from a
+ * preprocessor expression that is evaluated on other platforms. */
+#if defined(__OpenBSD__)
+#define NEED_QSORT_R 1
+#elif defined(__NetBSD__)
+#if !__NetBSD_Prereq__(11, 0, 0)
+#define NEED_QSORT_R 1
+#endif
+#endif
+
+#ifdef NEED_QSORT_R
 static inline void qsort_r(void *base, size_t nmemb, size_t size,
                            int (*compar)(const void *, const void *, void *), void *arg) {
         char *b = base;

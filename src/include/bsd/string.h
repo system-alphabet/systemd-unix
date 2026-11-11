@@ -48,7 +48,17 @@ static inline void explicit_bzero(void *p, size_t n) {
 #include <sys/param.h> /* for __NetBSD_Prereq__() */
 #endif
 
-#if defined(__OpenBSD__) || (defined(__NetBSD__) && !__NetBSD_Prereq__(11, 0, 0))
+/* __NetBSD_Prereq__() only exists on NetBSD, so it must not be referenced from a
+ * preprocessor expression that is evaluated on other platforms. */
+#if defined(__OpenBSD__)
+#define NEED_MEMPCPY 1
+#elif defined(__NetBSD__)
+#if !__NetBSD_Prereq__(11, 0, 0)
+#define NEED_MEMPCPY 1
+#endif
+#endif
+
+#ifdef NEED_MEMPCPY
 static inline void *mempcpy(void *dest, const void *src, size_t n) {
         return (char *) memcpy(dest, src, n) + n;
 }
